@@ -1,0 +1,43 @@
+# Rust
+/server/target/
+/server/Cargo.lock
+**/*.rs.bk
+
+# Flutter
+/client/.dart_tool/
+/client/.flutter-plugins
+/client/.flutter-plugins-dependencies
+/client/.packages
+/client/build/
+/client/pubspec.lock
+
+# Environment
+.env
+*.env
+!.env.example
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+docker-compose.override.yml
+
+# Logs
+*.log
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Generated files
+/server/src/proto/*.rs
+/client/lib/shared/proto/*.dart

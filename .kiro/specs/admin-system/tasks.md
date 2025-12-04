@@ -1,0 +1,144 @@
+# Implementation Plan
+
+- [x] 1. Add UserRole to User Model
+  - [x] 1.1 Add UserRole enum to user.rs with User, Moderator, Admin variants
+    - Add derive macros for sqlx::Type, Serialize, Deserialize
+    - _Requirements: 1.1_
+  - [x] 1.2 Update User struct to include role field
+    - Add role: UserRole field after account_status
+    - _Requirements: 1.1_
+  - [x] 1.3 Update UserProfile to include role field for admin views
+    - _Requirements: 3.4_
+  - [x] 1.4 Write property test for default role assignment
+    - **Property 1: Default Role Assignment**
+    - **Validates: Requirements 1.1**
+
+- [x] 2. Update User Service for Role Support
+  - [x] 2.1 Update create_user to set default role as User
+    - Modify INSERT query to include role column
+    - _Requirements: 1.1_
+  - [x] 2.2 Update all SELECT queries to include role field
+    - Update get_user_by_id, get_user_by_username, get_user_by_email
+    - _Requirements: 3.4_
+  - [x] 2.3 Add get_user_role method to UserService
+    - _Requirements: 1.3, 1.4_
+
+- [x] 3. Create Admin Service
+  - [x] 3.1 Create admin module structure
+    - Create server/src/services/admin/mod.rs
+    - Create server/src/services/admin/admin_service.rs
+    - _Requirements: 2.1, 2.2, 2.3_
+  - [x] 3.2 Implement AdminError enum
+    - Include UserNotFound, PermissionDenied, InvalidOperation, InsufficientPrivileges, DatabaseError
+    - _Requirements: 2.5_
+  - [x] 3.3 Implement check_admin_permission method
+    - Verify user has Admin or Moderator role
+    - _Requirements: 1.3, 1.4, 1.5_
+  - [x] 3.4 Write property test for role-based access control
+    - **Property 2: Role-Based Access Control**
+    - **Validates: Requirements 1.3, 1.4, 1.5**
+
+- [x] 4. Implement User Account Management
+  - [x] 4.1 Implement suspend_user method
+    - Check admin permission, update account_status to Suspended
+    - Prevent suspending users with higher privileges
+    - _Requirements: 2.1, 2.5_
+  - [x] 4.2 Write property test for suspension state transition
+    - **Property 3: Suspension State Transition**
+    - **Validates: Requirements 2.1**
+  - [x] 4.3 Implement activate_user method
+    - Check admin permission, update account_status to Active
+    - _Requirements: 2.2_
+  - [x] 4.4 Write property test for activation state transition
+    - **Property 4: Activation State Transition**
+    - **Validates: Requirements 2.2**
+  - [x] 4.5 Implement delete_user method (soft delete)
+    - Check admin permission, update account_status to Deleted
+    - _Requirements: 2.3_
+  - [x] 4.6 Write property test for soft delete preservation
+    - **Property 5: Soft Delete Preservation**
+    - **Validates: Requirements 2.3**
+  - [x] 4.7 Write property test for privilege hierarchy enforcement
+    - **Property 7: Privilege Hierarchy Enforcement**
+    - **Validates: Requirements 2.5**
+
+- [x] 5. Implement Role Change and Audit Logging
+  - [x] 5.1 Implement change_user_role method
+    - Only Admin can change roles
+    - Log role change to audit log
+    - _Requirements: 1.2_
+  - [x] 5.2 Implement log_admin_action helper method
+    - Record admin_id, action_type, target_id, reason, timestamp
+    - _Requirements: 2.4, 5.1_
+  - [x] 5.3 Write property test for audit log completeness
+    - **Property 6: Audit Log Completeness**
+    - **Validates: Requirements 2.4, 5.1, 5.3**
+
+- [x] 6. Implement Admin Queries
+  - [x] 6.1 Implement get_stats method
+    - Return total_users, active_users, suspended_users, deleted_users, online_users, users_by_role
+    - _Requirements: 4.1, 4.2_
+  - [x] 6.2 Write property test for statistics completeness
+    - **Property 11: Statistics Completeness**
+    - **Validates: Requirements 4.1, 4.2**
+  - [x] 6.3 Implement list_users method with pagination
+    - Return paginated UserAdminView list
+    - _Requirements: 3.1, 3.2_
+  - [x] 6.4 Write property test for pagination correctness
+    - **Property 8: Pagination Correctness**
+    - **Validates: Requirements 3.2**
+  - [x] 6.5 Implement search_users method with filters
+    - Filter by username, email, role, account_status
+    - _Requirements: 3.3_
+  - [x] 6.6 Write property test for search filter accuracy
+    - **Property 9: Search Filter Accuracy**
+    - **Validates: Requirements 3.3**
+  - [x] 6.7 Write property test for user details completeness
+    - **Property 10: User Details Completeness**
+    - **Validates: Requirements 3.1, 3.4**
+
+- [x] 7. Checkpoint - Ensure all service tests pass
+  - Ensure all tests pass, ask the user if questions arise.
+
+- [x] 8. Create Admin API Endpoints
+  - [x] 8.1 Create admin API module
+    - Create server/src/api/admin.rs
+    - Add to server/src/api/mod.rs
+    - _Requirements: 1.3, 1.4_
+  - [x] 8.2 Implement GET /admin/stats endpoint
+    - _Requirements: 4.1, 4.2_
+  - [x] 8.3 Implement GET /admin/users endpoint with pagination
+    - _Requirements: 3.1, 3.2_
+  - [x] 8.4 Implement GET /admin/users/search endpoint
+    - _Requirements: 3.3_
+  - [x] 8.5 Implement POST /admin/users/:id/suspend endpoint
+    - _Requirements: 2.1_
+  - [x] 8.6 Implement POST /admin/users/:id/activate endpoint
+    - _Requirements: 2.2_
+  - [x] 8.7 Implement DELETE /admin/users/:id endpoint
+    - _Requirements: 2.3_
+  - [x] 8.8 Implement PUT /admin/users/:id/role endpoint
+    - _Requirements: 1.2_
+
+- [x] 9. Register Admin Routes
+  - [x] 9.1 Create admin_routes function
+    - Wire all admin endpoints
+    - _Requirements: 1.3, 1.4_
+  - [x] 9.2 Add admin routes to main.rs
+    - Nest under /admin path with JWT middleware
+    - _Requirements: 1.5_
+
+- [x] 10. Checkpoint - Ensure all tests pass
+  - Ensure all tests pass, ask the user if questions arise.
+
+- [x] 11. Implement Audit Log Viewing
+  - [x] 11.1 Implement GET /admin/audit-logs endpoint
+    - Support pagination and filtering by date_range, action_type, admin_id
+    - _Requirements: 5.2_
+  - [x] 11.2 Write integration tests for admin workflows
+    - Test suspend → activate → delete workflow
+    - Test audit log creation across actions
+    - _Requirements: 2.4, 5.1_
+
+- [x] 12. Final Checkpoint - Ensure all tests pass
+  - Ensure all tests pass, ask the user if questions arise.

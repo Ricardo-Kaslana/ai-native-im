@@ -1,0 +1,10 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 0ee2d327acb266c24420d6dde3db5dce7b4efd157484bce8587bbcfe5e7d7534 # shrinks to username_suffix = "0aaaa0a0"
+cc 71acc7feac978d4b79b89737475aa5dfdb1bb44feeeb113f4aa51fdde2630836 # shrinks to username_suffix = "0a00aaaa"
+cc 10c7a72854a8bb24f133b49917d082e58e9622a1964e84eae58dc94c40174078 # shrinks to username_suffix = "a00aaa00"
+cc d8b72f217886475c59e5bba46e44519590d689c214ac7220e9c643716c0d03ac # shrinks to username_suffix = "0aa0aa00"

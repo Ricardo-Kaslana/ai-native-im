@@ -1,0 +1,72 @@
+syntax = "proto3";
+package chat;
+
+// 消息类型枚举
+enum MsgType {
+  TEXT = 0;
+  IMAGE = 1;
+  VIDEO = 2;
+  EMOJI = 3;
+}
+
+// 聊天消息
+message ChatMessage {
+  string id = 1;
+  string sender_id = 2;
+  string group_id = 3;      // 如果是私聊，此字段可为空或特定标识
+  string receiver_id = 4;   // 私聊对象 ID
+  MsgType type = 5;
+  string content = 6;       // 文本内容或媒体 URL
+  int64 timestamp = 7;
+  bool is_ai_generated = 8; // 标识是否为 Bot 发言
+}
+
+// 心跳消息
+message Heartbeat {
+  int64 timestamp = 1;
+}
+
+// 同步请求
+message SyncRequest {
+  int64 last_sync_timestamp = 1;
+  string user_id = 2;
+}
+
+// 同步响应
+message SyncResponse {
+  repeated ChatMessage messages = 1;
+  int64 sync_timestamp = 2;
+}
+
+// 客户端发送的消息包
+message ClientPacket {
+  oneof payload {
+    ChatMessage message = 1;
+    Heartbeat heartbeat = 2;
+    SyncRequest sync = 3;
+  }
+}
+
+// 服务端发送的消息包
+message ServerPacket {
+  oneof payload {
+    ChatMessage message = 1;
+    SyncResponse sync_response = 2;
+    TypingIndicator typing = 3;
+    MessageAck ack = 4;
+  }
+}
+
+// 正在输入指示器
+message TypingIndicator {
+  string user_id = 1;
+  string group_id = 2;
+  bool is_typing = 3;
+}
+
+// 消息确认
+message MessageAck {
+  string message_id = 1;
+  bool success = 2;
+  string error = 3;
+}

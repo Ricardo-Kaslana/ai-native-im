@@ -1,0 +1,88 @@
+[package]
+name = "ai-im-server"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+test-helpers = []
+
+[dependencies]
+# Web Framework
+axum = { version = "0.7", features = ["ws"] }
+tokio = { version = "1", features = ["full"] }
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+futures-util = "0.3"
+
+# Database
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "migrate"] }
+
+# Redis
+redis = { version = "0.26", features = ["tokio-comp", "connection-manager"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+prost = "0.13"
+prost-types = "0.13"
+
+# Error Handling
+thiserror = "2.0"
+anyhow = "1.0"
+
+# Utilities
+uuid = { version = "1.0", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+dotenv = "0.15"
+rand = "0.8"
+regex = "1.10"
+
+# Security
+bcrypt = "0.16"
+jsonwebtoken = "9.0"
+async-trait = "0.1"
+
+# HTTP Client (for AI API)
+reqwest = { version = "0.12", features = ["json", "stream"] }
+futures = "0.3"
+
+# Vector Database
+qdrant-client = "1.7"
+
+# WebSocket
+tokio-tungstenite = "0.24"
+
+# Media Processing
+image = { version = "0.25", features = ["webp", "jpeg", "png", "gif"] }
+sha2 = "0.10"
+
+# AWS S3
+aws-config = "1.1"
+aws-sdk-s3 = "1.13"
+
+[dev-dependencies]
+proptest = "1.4"
+tempfile = "3.8"
+
+[build-dependencies]
+prost-build = "0.13"
+
+# Profile optimizations
+[profile.dev]
+opt-level = 0
+debug = 1
+incremental = true
+codegen-units = 256  # Faster parallel compilation
+
+[profile.test]
+opt-level = 1        # Light optimization for faster test execution
+debug = 1            # Reduced debug info
+incremental = true
+codegen-units = 256  # Faster parallel compilation
+
+[profile.release]
+opt-level = 3
+lto = "thin"         # Link-time optimization
+codegen-units = 1    # Better optimization

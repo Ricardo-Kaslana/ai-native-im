@@ -10,7 +10,7 @@ use axum::{
 use serde::Deserialize;
 use std::sync::Arc;
 
-use crate::services::message::WebSocketHandler;
+use crate::services::message::{MessageRouter, WebSocketHandler};
 
 /// Query parameters for WebSocket connection
 #[derive(Debug, Deserialize)]
@@ -21,35 +21,35 @@ pub struct WsQuery {
 
 /// Application state for WebSocket handler
 #[derive(Clone)]
-pub struct WsAppState {
-    pub ws_handler: Arc<WebSocketHandler>,
+pub struct WsAppState<R: MessageRouter> {
+    pub ws_handler: Arc<WebSocketHandler<R>>,
 }
 
 
 
 /// Handle WebSocket connection
-async fn handle_socket(socket: WebSocket, token: Option<String>, handler: Arc<WebSocketHandler>) {
+async fn handle_socket<R: MessageRouter>(socket: WebSocket, token: Option<String>, handler: Arc<WebSocketHandler<R>>) {
     if let Err(e) = handler.handle_connection(socket, token).await {
         tracing::error!("WebSocket connection error: {}", e);
     }
 }
 
 /// Create WebSocket router
-pub fn create_ws_router(ws_handler: Arc<WebSocketHandler>) -> axum::Router {
+pub fn create_ws_router<R: MessageRouter + Clone + 'static>(ws_handler: Arc<WebSocketHandler<R>>) -> axum::Router {
     use axum::routing::get;
     
     let state = WsAppState { ws_handler };
     
     axum::Router::new()
-        .route("/ws", get(ws_handler_endpoint))
+        .route("/ws", get(ws_handler_endpoint::<R>))
         .with_state(state)
 }
 
 /// WebSocket endpoint handler
-async fn ws_handler_endpoint(
+async fn ws_handler_endpoint<R: MessageRouter + 'static>(
     ws: WebSocketUpgrade,
     Query(query): Query<WsQuery>,
-    State(state): State<WsAppState>,
+    State(state): State<WsAppState<R>>,
 ) -> impl IntoResponse {
     ws.on_upgrade(move |socket| handle_socket(socket, query.token, state.ws_handler))
 }

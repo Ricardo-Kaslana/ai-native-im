@@ -176,3 +176,50 @@ pub struct OfflineMessageBatch {
     pub has_more: bool,
     pub next_timestamp: Option<i64>,
 }
+
+/// WebSocket message format for client compatibility
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WsMessage {
+    pub id: String,
+    pub conversation_id: String,
+    pub sender_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sender_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sender_avatar: Option<String>,
+    #[serde(rename = "type")]
+    pub msg_type: String,
+    pub content: String,
+    pub status: String,
+    pub created_at: String,
+}
+
+impl From<&Message> for WsMessage {
+    fn from(msg: &Message) -> Self {
+        // Determine conversation_id from receiver_id or group_id
+        let conversation_id = msg.group_id
+            .or(msg.receiver_id)
+            .map(|id| id.to_string())
+            .unwrap_or_else(|| msg.id.to_string());
+        
+        // Convert msg_type to string
+        let msg_type = match MsgType::from(msg.msg_type) {
+            MsgType::Text => "text",
+            MsgType::Image => "image",
+            MsgType::Video => "video",
+            MsgType::Emoji => "emoji",
+        };
+        
+        Self {
+            id: msg.id.to_string(),
+            conversation_id,
+            sender_id: msg.sender_id.to_string(),
+            sender_name: None,
+            sender_avatar: None,
+            msg_type: msg_type.to_string(),
+            content: msg.content.clone(),
+            status: if msg.delivered { "delivered".to_string() } else { "sent".to_string() },
+            created_at: msg.created_at.to_rfc3339(),
+        }
+    }
+}

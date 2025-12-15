@@ -1,9 +1,11 @@
 # Cargo configuration for faster builds and tests
+# 编译速度优化配置
 
 [build]
 # Use all available CPU cores for parallel compilation
 jobs = -1
 
+# ============== Linux 平台配置 ==============
 [target.x86_64-unknown-linux-gnu]
 # Use faster linker (mold is fastest, lld is fallback)
 # Uncomment the one you have installed:
@@ -11,23 +13,38 @@ jobs = -1
 # rustflags = ["-C", "link-arg=-fuse-ld=mold"]  # Fastest (requires mold)
 rustflags = ["-C", "link-arg=-fuse-ld=lld"]     # Fast (requires lld)
 
-# Alternative: use default linker but with optimizations
-# rustflags = ["-C", "link-arg=-Wl,--threads"]
+# ============== Windows 平台配置 ==============
+[target.x86_64-pc-windows-msvc]
+# Windows MSVC 链接器优化
+# 使用增量链接和并行代码生成
+rustflags = [
+    "-C", "link-arg=/INCREMENTAL",      # 增量链接
+    "-C", "link-arg=/OPT:REF",          # 移除未使用的函数
+    "-C", "link-arg=/OPT:ICF",          # 合并相同的 COMDAT
+]
 
-[profile.dev]
-# Faster compilation in dev mode
-opt-level = 0
-debug = 1  # Reduced debug info (0 = none, 1 = line tables, 2 = full)
-incremental = true
+# ============== macOS 平台配置 ==============
+[target.x86_64-apple-darwin]
+rustflags = ["-C", "link-arg=-fuse-ld=lld"]
 
-[profile.test]
-# Optimize test profile for faster execution
-opt-level = 1  # Some optimization without slowing compilation too much
-debug = 1      # Reduced debug info
-incremental = true
+[target.aarch64-apple-darwin]
+rustflags = ["-C", "link-arg=-fuse-ld=lld"]
 
-# Optional: even faster tests with more optimization
-# [profile.test]
-# opt-level = 2
-# debug = 0
-# incremental = true
+# ============== 环境变量 ==============
+[env]
+# 减少 LLVM 优化时间
+CARGO_PROFILE_DEV_LTO = "false"
+CARGO_PROFILE_TEST_LTO = "false"
+# 启用增量编译缓存
+CARGO_INCREMENTAL = "1"
+
+# ============== 别名 ==============
+[alias]
+# 快速检查（不生成代码）
+c = "check"
+# 快速测试单个模块
+t = "test --lib"
+# 快速构建
+b = "build"
+# 运行特定测试
+tt = "test --lib -- --test-threads=4"

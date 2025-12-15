@@ -109,12 +109,14 @@ pub struct GroupAuditLog {
 }
 
 /// Group creation request
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Default)]
 pub struct CreateGroup {
+    #[serde(default)]
     pub name: String,
     pub description: Option<String>,
     pub avatar: Option<String>,
     pub is_public: Option<bool>,
+    pub member_ids: Option<Vec<Uuid>>,
 }
 
 /// Group settings update request

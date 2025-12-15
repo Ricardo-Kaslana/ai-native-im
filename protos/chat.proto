@@ -1,72 +1,784 @@
 syntax = "proto3";
+
 package chat;
 
-// 消息类型枚举
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/struct.proto";
+
+// ===================================================================
+// SECTION: Core Models
+// ===================================================================
+
+// Represents a user's public profile
+message User {
+  string id = 1;
+  string username = 2;
+  string email = 3;
+  optional string avatar_url = 4;
+  optional string bio = 5;
+  UserStatus status = 6;
+  google.protobuf.Timestamp created_at = 7;
+}
+
+// User online status
+enum UserStatus {
+  UNKNOWN = 0;
+  OFFLINE = 1;
+  ONLINE = 2;
+  AWAY = 3;
+}
+
+// Represents a group
+message Group {
+  string id = 1;
+  string name = 2;
+  string owner_id = 3;
+  optional string description = 4;
+  google.protobuf.Timestamp created_at = 5;
+  repeated GroupMember members = 6;
+}
+
+// Represents a member in a group
+message GroupMember {
+  string user_id = 1;
+  User user_profile = 2;
+  Role role = 3;
+}
+
+// Group member roles
+enum Role {
+  MEMBER = 0;
+  ADMIN = 1;
+  OWNER = 2;
+}
+
+
+
+
+// ===================================================================
+// SECTION: Group API
+// ===================================================================
+
+// POST /groups
+message CreateGroupRequest {
+  string name = 1;
+  optional string description = 2;
+}
+
+// GET /groups/:group_id
+message GetGroupResponse {
+  Group group = 1;
+}
+
+// PUT /groups/:group_id
+message UpdateGroupRequest {
+  optional string name = 1;
+  optional string description = 2;
+}
+
+// DELETE /groups/:group_id
+message DeleteGroupResponse {
+  bool success = 1;
+  optional string message = 2;
+}
+
+// GET /groups/:group_id/members
+message ListGroupMembersResponse {
+  repeated GroupMember members = 1;
+}
+
+// POST /groups/:group_id/members
+message AddMemberRequest {
+  string user_id = 1;
+  optional Role role = 2; // defaults to MEMBER
+}
+
+// DELETE /groups/:group_id/members/:user_id
+message RemoveMemberResponse {
+  bool success = 1;
+  optional string message = 2;
+}
+
+// PUT /groups/:group_id/members/:user_id/role
+message UpdateMemberRoleRequest {
+  Role role = 1;
+}
+
+// POST /groups/:group_id/ban
+message BanMemberRequest {
+  string user_id = 1;
+  optional string reason = 2;
+  optional int32 duration_days = 3; // 0 = permanent
+}
+
+// DELETE /groups/:group_id/ban/:user_id
+message UnbanMemberResponse {
+  bool success = 1;
+  optional string message = 2;
+}
+
+// POST /groups/:group_id/invite
+message GenerateInviteCodeRequest {
+  optional int32 expires_in_hours = 1; // default: 24
+  optional int32 max_uses = 2; // default: 1
+}
+
+message InviteCodeResponse {
+  string code = 1;
+  string invite_url = 2;
+  google.protobuf.Timestamp expires_at = 3;
+  int32 max_uses = 4;
+  int32 current_uses = 5;
+}
+
+// POST /groups/:group_id/join
+message JoinGroupRequest {
+  string invite_code = 1;
+}
+
+message JoinGroupResponse {
+  Group group = 1;
+  GroupMember membership = 2;
+}
+
+// GET /groups/search
+message SearchGroupsRequest {
+  string query = 1;
+  optional int32 limit = 2; // default: 20
+  optional int32 offset = 3; // default: 0
+}
+
+message SearchGroupsResponse {
+  repeated Group groups = 1;
+  int32 total_count = 2;
+}
+
+// ===================================================================
+// SECTION: Authentication API
+// ===================================================================
+
+// POST /auth/register
+message RegisterRequest {
+  string username = 1;
+  string email = 2;
+  string password = 3;
+}
+
+// POST /auth/login
+message LoginRequest {
+  string email = 1;
+  string password = 2;
+}
+
+// Response for login/register
+message AuthResponse {
+  string access_token = 1;
+  string refresh_token = 2;
+  User user = 3;
+  int64 expires_in = 4; // seconds until access token expires
+}
+
+// POST /auth/logout
+message LogoutRequest {
+  optional string refresh_token = 1; // optional, to invalidate refresh token
+}
+
+message LogoutResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// POST /auth/refresh
+message RefreshTokenRequest {
+  string refresh_token = 1;
+}
+
+message RefreshTokenResponse {
+  string access_token = 1;
+  string refresh_token = 2;
+  int64 expires_in = 3; // seconds until access token expires
+}
+
+// POST /auth/password/change
+message ChangePasswordRequest {
+  string current_password = 1;
+  string new_password = 2;
+}
+
+message ChangePasswordResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// POST /auth/password/reset/request
+message ResetPasswordRequest {
+  string email = 1;
+}
+
+message ResetPasswordRequestResponse {
+  bool success = 1;
+  string message = 2;
+  int64 reset_token_expires_in = 3; // seconds until reset token expires
+}
+
+// POST /auth/password/reset/confirm
+message ResetPasswordConfirmRequest {
+  string token = 1;
+  string new_password = 2;
+}
+
+message ResetPasswordConfirmResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// POST /auth/verify-email
+message VerifyEmailRequest {
+  string token = 1;
+}
+
+message VerifyEmailResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// POST /auth/resend-verification
+message ResendVerificationRequest {
+  string email = 1;
+}
+
+message ResendVerificationResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+
+// ===================================================================
+// SECTION: User API
+// ===================================================================
+
+// GET /users/me
+message GetCurrentUserResponse {
+  User user = 1;
+}
+
+// PUT /users/me
+message UpdateUserProfileRequest {
+  optional string username = 1;
+  optional string avatar_url = 2;
+  optional string bio = 3;
+  optional UserStatus status = 4;
+}
+
+// GET /users/:id
+message GetUserResponse {
+  User user = 1;
+}
+
+// POST /users/batch
+message GetUsersBatchRequest {
+  repeated string user_ids = 1;
+}
+
+message GetUsersBatchResponse {
+  repeated User users = 1;
+}
+
+// GET /users/search
+message SearchUsersRequest {
+  string query = 1;
+  optional int32 limit = 2; // default: 20
+  optional int32 offset = 3; // default: 0
+  optional bool include_online_only = 4; // default: false
+}
+
+message SearchUsersResponse {
+  repeated User users = 1;
+  int32 total_count = 2;
+}
+
+// POST /users/:id/block
+message BlockUserRequest {
+  optional string reason = 1;
+}
+
+message BlockUserResponse {
+  bool success = 1;
+  optional string message = 2;
+}
+
+// DELETE /users/:id/block
+message UnblockUserResponse {
+  bool success = 1;
+  optional string message = 2;
+}
+
+// GET /users/blocked
+message GetBlockedUsersResponse {
+  repeated User blocked_users = 1;
+}
+
+// PUT /users/me/notifications
+message UpdateNotificationSettings {
+  bool enable_push_notifications = 1;
+  bool enable_email_notifications = 2;
+  bool enable_message_preview = 3;
+  bool enable_group_invites = 4;
+  bool enable_friend_requests = 5;
+}
+
+message NotificationSettings {
+  bool enable_push_notifications = 1;
+  bool enable_email_notifications = 2;
+  bool enable_message_preview = 3;
+  bool enable_group_invites = 4;
+  bool enable_friend_requests = 5;
+}
+
+
+// ===================================================================
+// SECTION: WebSocket Payloads (Real-time)
+// ===================================================================
+
+// Type of chat message content
 enum MsgType {
   TEXT = 0;
   IMAGE = 1;
   VIDEO = 2;
-  EMOJI = 3;
+  SYSTEM = 3; // For system notifications in a chat
 }
 
-// 聊天消息
+// Core chat message
 message ChatMessage {
   string id = 1;
   string sender_id = 2;
-  string group_id = 3;      // 如果是私聊，此字段可为空或特定标识
-  string receiver_id = 4;   // 私聊对象 ID
+  string group_id = 3;
+  string receiver_id = 4; // For private chats
   MsgType type = 5;
-  string content = 6;       // 文本内容或媒体 URL
-  int64 timestamp = 7;
-  bool is_ai_generated = 8; // 标识是否为 Bot 发言
+  string content = 6; // Text content or media URL
+  google.protobuf.Timestamp timestamp = 7;
+  bool is_ai_generated = 8;
 }
 
-// 心跳消息
+// Heartbeat message
 message Heartbeat {
-  int64 timestamp = 1;
+  google.protobuf.Timestamp timestamp = 1;
 }
 
-// 同步请求
+// Request to sync messages since last timestamp
 message SyncRequest {
-  int64 last_sync_timestamp = 1;
+  google.protobuf.Timestamp last_sync_timestamp = 1;
   string user_id = 2;
 }
 
-// 同步响应
+// Response for a sync request
 message SyncResponse {
   repeated ChatMessage messages = 1;
-  int64 sync_timestamp = 2;
+  google.protobuf.Timestamp sync_timestamp = 2;
 }
 
-// 客户端发送的消息包
-message ClientPacket {
-  oneof payload {
-    ChatMessage message = 1;
-    Heartbeat heartbeat = 2;
-    SyncRequest sync = 3;
-  }
-}
-
-// 服务端发送的消息包
-message ServerPacket {
-  oneof payload {
-    ChatMessage message = 1;
-    SyncResponse sync_response = 2;
-    TypingIndicator typing = 3;
-    MessageAck ack = 4;
-  }
-}
-
-// 正在输入指示器
+// Typing indicator
 message TypingIndicator {
   string user_id = 1;
   string group_id = 2;
   bool is_typing = 3;
 }
 
-// 消息确认
+// Message acknowledgement
 message MessageAck {
   string message_id = 1;
   bool success = 2;
-  string error = 3;
+  optional string error = 3;
+}
+
+
+
+// Packet sent from Server to Client
+message ServerPacket {
+  oneof payload {
+    ChatMessage message = 1;
+    SyncResponse sync_response = 2;
+    TypingIndicator typing = 3;
+    MessageAck ack = 4;
+    UserStatusUpdate user_status_update = 5;
+    GroupUpdate group_update = 6;
+    ConversationUpdate conversation_update = 7;
+    PresenceUpdate presence_update = 8;
+    MediaUploadProgress upload_progress = 9;
+    AIAgentMessage ai_message = 10;
+    SystemNotification system_notification = 11;
+  }
+}
+
+// ===================================================================
+// SECTION: Additional WebSocket Messages
+// ===================================================================
+
+// Group update notification
+message GroupUpdate {
+  string group_id = 1;
+  GroupUpdateType update_type = 2;
+  optional string user_id = 3; // User who caused the update
+  optional GroupMember member_info = 4;
+  optional string new_name = 5;
+  optional string new_description = 6;
+}
+
+enum GroupUpdateType {
+  MEMBER_JOINED = 0;
+  MEMBER_LEFT = 1;
+  MEMBER_ROLE_CHANGED = 2;
+  GROUP_UPDATED = 3;
+  GROUP_DELETED = 4;
+}
+
+// Conversation update notification
+message ConversationUpdate {
+  string conversation_id = 1;
+  ConversationUpdateType update_type = 2;
+  optional ChatMessage last_message = 3;
+  optional int32 unread_count = 4;
+}
+
+enum ConversationUpdateType {
+  NEW_MESSAGE = 0;
+  UNREAD_COUNT_CHANGED = 1;
+  CONVERSATION_ARCHIVED = 2;
+  CONVERSATION_DELETED = 3;
+}
+
+// Enhanced presence update
+message PresenceUpdate {
+  string user_id = 1;
+  UserStatus status = 2;
+  optional string status_message = 3;
+  optional bool is_mobile = 4;
+  google.protobuf.Timestamp last_seen = 5;
+}
+
+// Media upload progress
+message MediaUploadProgress {
+  string upload_id = 1;
+  int64 bytes_uploaded = 2;
+  int64 total_bytes = 3;
+  double progress_percentage = 4;
+  UploadStatus status = 5;
+  optional string error_message = 6;
+}
+
+enum UploadStatus {
+  UPLOADING = 0;
+  COMPLETED = 1;
+  FAILED = 2;
+  CANCELLED = 3;
+}
+
+// AI Agent specific message
+message AIAgentMessage {
+  string agent_id = 1;
+  string group_id = 2;
+  ChatMessage message = 3;
+  optional string thinking_process = 4; // Hidden chain of thought
+  optional double confidence_score = 5;
+  repeated string triggered_keywords = 6;
+  TriggerType trigger_type = 7;
+}
+
+enum TriggerType {
+  AGENT_MENTION = 0;
+  KEYWORD = 1;
+  CONTEXTUAL = 2;
+  RANDOM = 3;
+  IDLE_ACTIVATION = 4;
+  PROACTIVE_GREETING = 5;
+}
+
+// System notification
+message SystemNotification {
+  string id = 1;
+  NotificationType type = 2;
+  string title = 3;
+  string message = 4;
+  optional string action_url = 5;
+  google.protobuf.Timestamp timestamp = 6;
+  bool is_read = 7;
+}
+
+enum NotificationType {
+  INFO = 0;
+  WARNING = 1;
+  ERROR = 2;
+  SUCCESS = 3;
+  FRIEND_REQUEST = 4;
+  GROUP_INVITATION = 5;
+  MENTION = 6;
+}
+
+// Enhanced client packet
+message ClientPacket {
+  oneof payload {
+    ChatMessage message = 1;
+    Heartbeat heartbeat = 2;
+    SyncRequest sync_request = 3;
+    TypingIndicator typing = 4;
+    MarkAsRead mark_as_read = 5;
+    PresenceUpdate presence_update = 6;
+    MediaUploadStart upload_start = 7;
+    MediaUploadCancel upload_cancel = 8;
+    AIAgentInteraction agent_interaction = 9;
+  }
+}
+
+// Mark messages as read
+message MarkAsRead {
+  string conversation_id = 1;
+  google.protobuf.Timestamp read_up_to = 2;
+}
+
+// Media upload start
+message MediaUploadStart {
+  string filename = 1;
+  string content_type = 2;
+  int64 file_size = 3;
+  string conversation_id = 4;
+}
+
+// Cancel media upload
+message MediaUploadCancel {
+  string upload_id = 1;
+}
+
+// AI Agent interaction
+message AIAgentInteraction {
+  string agent_id = 1;
+  string interaction_type = 2; // "feedback", "affinity", "summary"
+  oneof interaction_data {
+    FeedbackRequest feedback = 3;
+    SetAffinityRequest affinity = 4;
+    SummaryRequest summary = 5;
+  }
+}
+
+message UserStatusUpdate {
+  string user_id = 1;
+  UserStatus status = 2;
+}
+
+// ===================================================================
+// SECTION: Contacts API
+// ===================================================================
+
+// GET /contacts
+message GetContactsResponse {
+  repeated ContactResponse contacts = 1;
+}
+
+// POST /contacts
+message AddContactRequest {
+  string contact_id = 1;
+}
+
+message ContactResponse {
+  string id = 1;
+  string username = 2;
+  string email = 3;
+  optional string avatar_url = 4;
+  optional string bio = 5;
+  bool is_online = 6;
+  string created_at = 7;
+}
+
+// ===================================================================
+// SECTION: Conversations API
+// ===================================================================
+
+// Conversation type
+enum ConversationType {
+  PRIVATE = 0;
+  GROUP = 1;
+}
+
+// GET /conversations
+message GetConversationsResponse {
+  repeated Conversation conversations = 1;
+}
+
+// POST /conversations
+message CreateConversationRequest {
+  ConversationType conversation_type = 1;
+  optional string name = 2;
+  repeated string participant_ids = 3;
+}
+
+message Conversation {
+  string id = 1;
+  ConversationType conversation_type = 2;
+  optional string name = 3;
+  repeated ParticipantInfo participants = 4;
+  string created_at = 5;
+  string updated_at = 6;
+}
+
+message ParticipantInfo {
+  string id = 1;
+  string username = 2;
+  optional string avatar_url = 3;
+}
+
+// ===================================================================
+// SECTION: AI Agent API
+// ===================================================================
+
+// AI Agent personality configuration
+message AIAgentPersona {
+  optional string name = 1;
+  optional string description = 2;
+  optional int32 sarcasm_level = 3; // 0-100
+  optional int32 enthusiasm_level = 4; // 0-100
+  optional string expertise_domain = 5;
+  optional string speech_pattern = 6;
+  optional string response_style = 7;
+  repeated string forbidden_topics = 8;
+  repeated string preferred_topics = 9;
+  optional int32 trigger_threshold = 10; // 0-100
+  optional bool enable_typing_simulation = 11;
+  optional int32 typing_speed_wpm = 12;
+  optional bool enable_multimodal = 13;
+  optional string emotional_tone = 14;
+  repeated string catchphrases = 15;
+}
+
+// POST /groups/:group_id/agent
+message CreateAIAgentRequest {
+  string name = 1;
+  AIAgentPersona persona = 2;
+}
+
+// GET /groups/:group_id/agent or GET /agents/:agent_id
+message AIAgentResponse {
+  string id = 1;
+  string name = 2;
+  string group_id = 3;
+  AIAgentPersona persona = 4;
+  bool is_active = 5;
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp updated_at = 7;
+  AIAgentStats stats = 8;
+}
+
+// PUT /agents/:agent_id/personality
+message UpdatePersonalityRequest {
+  AIAgentPersona persona = 1;
+}
+
+// GET /agents/:agent_id/stats
+message AIAgentStats {
+  int64 total_messages = 1;
+  int64 total_interactions = 2;
+  double average_response_time_ms = 3;
+  double user_satisfaction_score = 4;
+  int32 active_days = 5;
+  google.protobuf.Timestamp last_interaction = 6;
+}
+
+// POST /agents/:agent_id/affinity
+message SetAffinityRequest {
+  string user_id = 1;
+  int32 affinity_score = 2; // -100 to 100
+}
+
+// POST /agents/:agent_id/feedback
+message FeedbackRequest {
+  string response_id = 1;
+  string feedback_type = 2; // "positive", "negative", "neutral"
+  optional string correction = 3;
+}
+
+message FeedbackResponse {
+  bool recorded = 1;
+  string message = 2;
+}
+
+// POST /agents/:agent_id/summary
+message SummaryRequest {
+  optional int32 message_count = 1; // default: 100
+  string style = 2; // "brief", "detailed", "topics", "action_items"
+  bool use_cache = 3; // default: true
+}
+
+message SummaryResponse {
+  string summary = 1;
+  repeated string topics = 2;
+  repeated string action_items = 3;
+  google.protobuf.Timestamp generated_at = 4;
+}
+
+// ===================================================================
+// SECTION: Media API
+// ===================================================================
+
+// POST /media/upload
+message UploadRequest {
+  string filename = 1;
+  string content_type = 2;
+  int64 file_size = 3;
+}
+
+message UploadResponse {
+  string upload_id = 1;
+  string upload_url = 2;
+  int64 expires_in = 3; // seconds
+}
+
+message CompleteUploadRequest {
+  string upload_id = 1;
+}
+
+message MediaResponse {
+  string id = 1;
+  string url = 2;
+  string thumbnail_url = 3;
+  string content_type = 4;
+  int64 file_size = 5;
+  google.protobuf.Timestamp created_at = 6;
+}
+
+// ===================================================================
+// SECTION: Admin API
+// ===================================================================
+
+// GET /admin/stats
+message AdminStats {
+  int64 total_users = 1;
+  int64 active_users = 2;
+  int64 total_groups = 3;
+  int64 total_messages = 4;
+  int64 total_ai_agents = 5;
+  google.protobuf.Timestamp last_updated = 6;
+}
+
+// POST /admin/users/:id/suspend
+message SuspendUserRequest {
+  optional string reason = 1;
+  optional int32 duration_days = 2;
+}
+
+// PUT /admin/users/:id/role
+message ChangeRoleRequest {
+  string role = 1; // "user", "admin", "moderator"
+}
+
+// ===================================================================
+// SECTION: Generic API Responses
+// ===================================================================
+
+message StandardSuccessResponse {
+  bool success = 1;
+  optional string message = 2;
+}
+
+message ErrorResponse {
+  int32 code = 1; // HTTP status code or custom error code
+  string message = 2;
+  optional google.protobuf.Value details = 3;
 }

@@ -1,6 +1,5 @@
 # Rust
 /server/target/
-/server/Cargo.lock
 **/*.rs.bk
 
 # Flutter
@@ -9,12 +8,13 @@
 /client/.flutter-plugins-dependencies
 /client/.packages
 /client/build/
-/client/pubspec.lock
+/client/.metadata
 
 # Environment
 .env
 *.env
 !.env.example
+!server/.env.example
 
 # IDE
 .vscode/
@@ -37,7 +37,20 @@ docker-compose.override.yml
 *.db
 *.sqlite
 *.sqlite3
+dump.rdb
+
+# Qdrant data
+.qdrant-initialized
+/storage/
+/snapshots/
 
 # Generated files
 /server/src/proto/*.rs
 /client/lib/shared/proto/*.dart
+
+# Property test regressions (keep for debugging)
+# /server/proptest-regressions/
+
+# Lock files (keep for reproducible builds)
+# /server/Cargo.lock
+# /client/pubspec.lock

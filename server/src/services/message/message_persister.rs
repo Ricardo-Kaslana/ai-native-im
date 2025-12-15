@@ -116,11 +116,21 @@ impl MessagePersister for PostgresMessagePersister {
         let pool = self.pool.clone();
         let message = message.clone();
         
-        self.execute_with_retry(|| {
+        tracing::debug!(
+            message_id = %message.id,
+            sender_id = %message.sender_id,
+            receiver_id = ?message.receiver_id,
+            group_id = ?message.group_id,
+            msg_type = message.msg_type,
+            content_len = message.content.len(),
+            "🔵 persist_message: Attempting database insert"
+        );
+        
+        let result = self.execute_with_retry(|| {
             let pool = pool.clone();
             let message = message.clone();
             async move {
-                sqlx::query(
+                let result = sqlx::query(
                     r#"
                     INSERT INTO messages (
                         id, sender_id, receiver_id, group_id, msg_type, 
@@ -143,10 +153,26 @@ impl MessagePersister for PostgresMessagePersister {
                 .execute(&pool)
                 .await?;
                 
+                tracing::debug!(
+                    message_id = %message.id,
+                    rows_affected = result.rows_affected(),
+                    "✅ Database insert completed"
+                );
+                
                 Ok(())
             }
         })
-        .await
+        .await;
+        
+        if let Err(ref e) = result {
+            tracing::error!(
+                message_id = %message.id,
+                error = %e,
+                "❌ persist_message: Database insert failed"
+            );
+        }
+        
+        result
     }
 
     async fn get_offline_messages(

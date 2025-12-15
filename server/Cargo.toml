@@ -45,11 +45,11 @@ jsonwebtoken = "9.0"
 async-trait = "0.1"
 
 # HTTP Client (for AI API)
-reqwest = { version = "0.12", features = ["json", "stream"] }
+reqwest = { version = "0.12", features = ["json", "stream", "multipart"] }
 futures = "0.3"
 
 # Vector Database
-qdrant-client = "1.7"
+qdrant-client = "1.16"
 
 # WebSocket
 tokio-tungstenite = "0.24"
@@ -65,24 +65,66 @@ aws-sdk-s3 = "1.13"
 [dev-dependencies]
 proptest = "1.4"
 tempfile = "3.8"
+http-body-util = "0.1"
 
 [build-dependencies]
 prost-build = "0.13"
 
-# Profile optimizations
+# ============== Profile 优化配置 ==============
+
 [profile.dev]
 opt-level = 0
-debug = 1
-incremental = true
-codegen-units = 256  # Faster parallel compilation
+debug = 1            # 减少调试信息 (0=无, 1=行号, 2=完整)
+incremental = true   # 增量编译
+codegen-units = 256  # 更多并行编译单元
+split-debuginfo = "unpacked"  # 分离调试信息，加快链接
+
+[profile.dev.package."*"]
+# 依赖包使用更高优化级别（编译一次，运行更快）
+opt-level = 2
+debug = false
 
 [profile.test]
-opt-level = 1        # Light optimization for faster test execution
-debug = 1            # Reduced debug info
+opt-level = 1        # 轻度优化，测试运行更快
+debug = 1            # 减少调试信息
 incremental = true
-codegen-units = 256  # Faster parallel compilation
+codegen-units = 256  # 更多并行编译单元
+
+[profile.test.package."*"]
+# 依赖包使用更高优化级别
+opt-level = 2
+debug = false
 
 [profile.release]
 opt-level = 3
-lto = "thin"         # Link-time optimization
-codegen-units = 1    # Better optimization
+lto = "thin"         # 链接时优化
+codegen-units = 1    # 更好的优化
+strip = true         # 移除符号表
+
+# CI 专用 profile - 平衡编译速度和运行速度
+[profile.ci]
+inherits = "release"
+lto = false          # 禁用 LTO 加快编译
+codegen-units = 16   # 更多并行单元
+opt-level = 2        # 中等优化
+
+# ============== 依赖包特定优化 ==============
+
+# 这些包编译慢但运行时性能重要，始终优化
+[profile.dev.package.image]
+opt-level = 2
+
+[profile.dev.package.sha2]
+opt-level = 2
+
+[profile.dev.package.bcrypt]
+opt-level = 2
+
+[profile.dev.package.regex]
+opt-level = 2
+
+[profile.dev.package.sqlx]
+opt-level = 1
+
+[profile.dev.package.reqwest]
+opt-level = 1

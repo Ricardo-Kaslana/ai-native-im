@@ -25,12 +25,19 @@ use tracing::{error, info, warn};
 use super::AIAgentError;
 
 /// LLM Provider type
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum LLMProvider {
+    // International providers
     OpenAI,
     Anthropic,
     Google,
-    SiliconFlow,
+    // Domestic providers (国内服务商)
+    SiliconFlow,  // 硅基流动
+    Zhipu,        // 智谱 AI (GLM)
+    Moonshot,     // 月之暗面 (Kimi)
+    Tongyi,       // 通义千问 (Alibaba)
+    Wenxin,       // 文心一言 (Baidu)
+    // Custom/Local
     Custom,
 }
 
@@ -41,6 +48,10 @@ impl std::fmt::Display for LLMProvider {
             LLMProvider::Anthropic => write!(f, "Anthropic"),
             LLMProvider::Google => write!(f, "Google"),
             LLMProvider::SiliconFlow => write!(f, "SiliconFlow"),
+            LLMProvider::Zhipu => write!(f, "Zhipu"),
+            LLMProvider::Moonshot => write!(f, "Moonshot"),
+            LLMProvider::Tongyi => write!(f, "Tongyi"),
+            LLMProvider::Wenxin => write!(f, "Wenxin"),
             LLMProvider::Custom => write!(f, "Custom"),
         }
     }
@@ -126,6 +137,67 @@ impl LLMConfig {
             api_base: Some("https://api.siliconflow.cn/v1".to_string()),
             // Default to Qwen2.5-7B-Instruct, a popular Chinese model
             model: model.unwrap_or_else(|| "Qwen/Qwen2.5-7B-Instruct".to_string()),
+            max_tokens: 500,
+            temperature: 0.8,
+            timeout_secs: 60,
+            max_retries: 3,
+        }
+    }
+
+    /// Create Zhipu AI (智谱 AI) configuration
+    /// API is OpenAI-compatible
+    pub fn zhipu(api_key: String, model: Option<String>) -> Self {
+        Self {
+            provider: LLMProvider::Zhipu,
+            api_key,
+            api_base: Some("https://open.bigmodel.cn/api/paas/v4".to_string()),
+            model: model.unwrap_or_else(|| "glm-4-flash".to_string()),
+            max_tokens: 500,
+            temperature: 0.8,
+            timeout_secs: 60,
+            max_retries: 3,
+        }
+    }
+
+    /// Create Moonshot (月之暗面 Kimi) configuration
+    /// API is OpenAI-compatible
+    pub fn moonshot(api_key: String, model: Option<String>) -> Self {
+        Self {
+            provider: LLMProvider::Moonshot,
+            api_key,
+            api_base: Some("https://api.moonshot.cn/v1".to_string()),
+            model: model.unwrap_or_else(|| "moonshot-v1-8k".to_string()),
+            max_tokens: 500,
+            temperature: 0.8,
+            timeout_secs: 60,
+            max_retries: 3,
+        }
+    }
+
+    /// Create Tongyi Qianwen (通义千问) configuration
+    /// Alibaba's LLM, API is OpenAI-compatible
+    pub fn tongyi(api_key: String, model: Option<String>) -> Self {
+        Self {
+            provider: LLMProvider::Tongyi,
+            api_key,
+            api_base: Some("https://dashscope.aliyuncs.com/compatible-mode/v1".to_string()),
+            model: model.unwrap_or_else(|| "qwen-turbo".to_string()),
+            max_tokens: 500,
+            temperature: 0.8,
+            timeout_secs: 60,
+            max_retries: 3,
+        }
+    }
+
+    /// Create Wenxin Yiyan (文心一言) configuration
+    /// Baidu's LLM - Note: Uses different API format, requires special handling
+    pub fn wenxin(api_key: String, secret_key: String, model: Option<String>) -> Self {
+        // Wenxin uses api_key:secret_key format
+        Self {
+            provider: LLMProvider::Wenxin,
+            api_key: format!("{}:{}", api_key, secret_key),
+            api_base: Some("https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop/chat".to_string()),
+            model: model.unwrap_or_else(|| "ernie-speed-128k".to_string()),
             max_tokens: 500,
             temperature: 0.8,
             timeout_secs: 60,
@@ -1297,6 +1369,449 @@ impl LLMClient for SiliconFlowClient {
     }
 }
 
+// ============== Zhipu AI Client (智谱 AI) ==============
+
+/// Zhipu AI (智谱 AI) LLM client
+/// Uses OpenAI-compatible API format
+/// Models: glm-4, glm-4-flash, glm-4-air, etc.
+pub struct ZhipuClient {
+    client: Client,
+    config: LLMConfig,
+}
+
+impl ZhipuClient {
+    pub fn new(api_key: String, model: Option<String>) -> Self {
+        Self::from_config(LLMConfig::zhipu(api_key, model))
+    }
+
+    pub fn from_config(config: LLMConfig) -> Self {
+        Self {
+            client: Client::new(),
+            config,
+        }
+    }
+
+    fn api_base(&self) -> &str {
+        self.config
+            .api_base
+            .as_deref()
+            .unwrap_or("https://open.bigmodel.cn/api/paas/v4")
+    }
+
+    async fn call_api(&self, system_prompt: &str, user_message: &str) -> Result<String, AIAgentError> {
+        let messages = vec![
+            ChatMessage::system(system_prompt),
+            ChatMessage::user(user_message),
+        ];
+        self.call_api_with_messages(&messages).await
+    }
+
+    async fn call_api_with_messages(&self, messages: &[ChatMessage]) -> Result<String, AIAgentError> {
+        let openai_messages: Vec<OpenAIChatMessage> = messages
+            .iter()
+            .map(|m| OpenAIChatMessage {
+                role: match m.role {
+                    ChatRole::System => "system".to_string(),
+                    ChatRole::User => "user".to_string(),
+                    ChatRole::Assistant => "assistant".to_string(),
+                },
+                content: m.content.clone(),
+            })
+            .collect();
+
+        let request = OpenAIChatRequest {
+            model: self.config.model.clone(),
+            messages: openai_messages,
+            max_tokens: self.config.max_tokens,
+            temperature: self.config.temperature,
+            stream: None,
+        };
+
+        let response = self
+            .client
+            .post(format!("{}/chat/completions", self.api_base()))
+            .header("Authorization", format!("Bearer {}", self.config.api_key))
+            .header("Content-Type", "application/json")
+            .timeout(Duration::from_secs(self.config.timeout_secs))
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| {
+                if e.is_timeout() {
+                    AIAgentError::LLMTimeout(self.config.timeout_secs)
+                } else {
+                    AIAgentError::LLMError(e.to_string())
+                }
+            })?;
+
+        handle_response::<OpenAIChatResponse>(response, |r| {
+            r.choices.first().map(|c| c.message.content.clone())
+        })
+        .await
+    }
+}
+
+#[async_trait]
+impl LLMClient for ZhipuClient {
+    async fn generate_response(&self, system_prompt: &str, user_message: &str) -> Result<String, AIAgentError> {
+        retry_with_backoff(self.config.max_retries, || self.call_api(system_prompt, user_message)).await
+    }
+
+    async fn generate_with_history(&self, messages: &[ChatMessage]) -> Result<String, AIAgentError> {
+        let messages = messages.to_vec();
+        retry_with_backoff(self.config.max_retries, || self.call_api_with_messages(&messages)).await
+    }
+
+    async fn generate_stream(&self, system_prompt: &str, user_message: &str) -> Result<mpsc::Receiver<StreamChunk>, AIAgentError> {
+        // Simplified: return non-streaming response as single chunk
+        let response = self.generate_response(system_prompt, user_message).await?;
+        let (tx, rx) = mpsc::channel(2);
+        tokio::spawn(async move {
+            let _ = tx.send(StreamChunk { content: response, is_final: false }).await;
+            let _ = tx.send(StreamChunk { content: String::new(), is_final: true }).await;
+        });
+        Ok(rx)
+    }
+
+    fn provider(&self) -> LLMProvider { LLMProvider::Zhipu }
+    fn model(&self) -> &str { &self.config.model }
+    fn config(&self) -> &LLMConfig { &self.config }
+}
+
+// ============== Moonshot Client (月之暗面 Kimi) ==============
+
+/// Moonshot (月之暗面 Kimi) LLM client
+/// Uses OpenAI-compatible API format
+/// Models: moonshot-v1-8k, moonshot-v1-32k, moonshot-v1-128k
+pub struct MoonshotClient {
+    client: Client,
+    config: LLMConfig,
+}
+
+impl MoonshotClient {
+    pub fn new(api_key: String, model: Option<String>) -> Self {
+        Self::from_config(LLMConfig::moonshot(api_key, model))
+    }
+
+    pub fn from_config(config: LLMConfig) -> Self {
+        Self {
+            client: Client::new(),
+            config,
+        }
+    }
+
+    fn api_base(&self) -> &str {
+        self.config
+            .api_base
+            .as_deref()
+            .unwrap_or("https://api.moonshot.cn/v1")
+    }
+
+    async fn call_api(&self, system_prompt: &str, user_message: &str) -> Result<String, AIAgentError> {
+        let messages = vec![
+            ChatMessage::system(system_prompt),
+            ChatMessage::user(user_message),
+        ];
+        self.call_api_with_messages(&messages).await
+    }
+
+    async fn call_api_with_messages(&self, messages: &[ChatMessage]) -> Result<String, AIAgentError> {
+        let openai_messages: Vec<OpenAIChatMessage> = messages
+            .iter()
+            .map(|m| OpenAIChatMessage {
+                role: match m.role {
+                    ChatRole::System => "system".to_string(),
+                    ChatRole::User => "user".to_string(),
+                    ChatRole::Assistant => "assistant".to_string(),
+                },
+                content: m.content.clone(),
+            })
+            .collect();
+
+        let request = OpenAIChatRequest {
+            model: self.config.model.clone(),
+            messages: openai_messages,
+            max_tokens: self.config.max_tokens,
+            temperature: self.config.temperature,
+            stream: None,
+        };
+
+        let response = self
+            .client
+            .post(format!("{}/chat/completions", self.api_base()))
+            .header("Authorization", format!("Bearer {}", self.config.api_key))
+            .header("Content-Type", "application/json")
+            .timeout(Duration::from_secs(self.config.timeout_secs))
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| {
+                if e.is_timeout() {
+                    AIAgentError::LLMTimeout(self.config.timeout_secs)
+                } else {
+                    AIAgentError::LLMError(e.to_string())
+                }
+            })?;
+
+        handle_response::<OpenAIChatResponse>(response, |r| {
+            r.choices.first().map(|c| c.message.content.clone())
+        })
+        .await
+    }
+}
+
+#[async_trait]
+impl LLMClient for MoonshotClient {
+    async fn generate_response(&self, system_prompt: &str, user_message: &str) -> Result<String, AIAgentError> {
+        retry_with_backoff(self.config.max_retries, || self.call_api(system_prompt, user_message)).await
+    }
+
+    async fn generate_with_history(&self, messages: &[ChatMessage]) -> Result<String, AIAgentError> {
+        let messages = messages.to_vec();
+        retry_with_backoff(self.config.max_retries, || self.call_api_with_messages(&messages)).await
+    }
+
+    async fn generate_stream(&self, system_prompt: &str, user_message: &str) -> Result<mpsc::Receiver<StreamChunk>, AIAgentError> {
+        let response = self.generate_response(system_prompt, user_message).await?;
+        let (tx, rx) = mpsc::channel(2);
+        tokio::spawn(async move {
+            let _ = tx.send(StreamChunk { content: response, is_final: false }).await;
+            let _ = tx.send(StreamChunk { content: String::new(), is_final: true }).await;
+        });
+        Ok(rx)
+    }
+
+    fn provider(&self) -> LLMProvider { LLMProvider::Moonshot }
+    fn model(&self) -> &str { &self.config.model }
+    fn config(&self) -> &LLMConfig { &self.config }
+}
+
+// ============== Tongyi Client (通义千问) ==============
+
+/// Tongyi Qianwen (通义千问) LLM client - Alibaba
+/// Uses OpenAI-compatible API format
+/// Models: qwen-turbo, qwen-plus, qwen-max
+pub struct TongyiClient {
+    client: Client,
+    config: LLMConfig,
+}
+
+impl TongyiClient {
+    pub fn new(api_key: String, model: Option<String>) -> Self {
+        Self::from_config(LLMConfig::tongyi(api_key, model))
+    }
+
+    pub fn from_config(config: LLMConfig) -> Self {
+        Self {
+            client: Client::new(),
+            config,
+        }
+    }
+
+    fn api_base(&self) -> &str {
+        self.config
+            .api_base
+            .as_deref()
+            .unwrap_or("https://dashscope.aliyuncs.com/compatible-mode/v1")
+    }
+
+    async fn call_api(&self, system_prompt: &str, user_message: &str) -> Result<String, AIAgentError> {
+        let messages = vec![
+            ChatMessage::system(system_prompt),
+            ChatMessage::user(user_message),
+        ];
+        self.call_api_with_messages(&messages).await
+    }
+
+    async fn call_api_with_messages(&self, messages: &[ChatMessage]) -> Result<String, AIAgentError> {
+        let openai_messages: Vec<OpenAIChatMessage> = messages
+            .iter()
+            .map(|m| OpenAIChatMessage {
+                role: match m.role {
+                    ChatRole::System => "system".to_string(),
+                    ChatRole::User => "user".to_string(),
+                    ChatRole::Assistant => "assistant".to_string(),
+                },
+                content: m.content.clone(),
+            })
+            .collect();
+
+        let request = OpenAIChatRequest {
+            model: self.config.model.clone(),
+            messages: openai_messages,
+            max_tokens: self.config.max_tokens,
+            temperature: self.config.temperature,
+            stream: None,
+        };
+
+        let response = self
+            .client
+            .post(format!("{}/chat/completions", self.api_base()))
+            .header("Authorization", format!("Bearer {}", self.config.api_key))
+            .header("Content-Type", "application/json")
+            .timeout(Duration::from_secs(self.config.timeout_secs))
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| {
+                if e.is_timeout() {
+                    AIAgentError::LLMTimeout(self.config.timeout_secs)
+                } else {
+                    AIAgentError::LLMError(e.to_string())
+                }
+            })?;
+
+        handle_response::<OpenAIChatResponse>(response, |r| {
+            r.choices.first().map(|c| c.message.content.clone())
+        })
+        .await
+    }
+}
+
+#[async_trait]
+impl LLMClient for TongyiClient {
+    async fn generate_response(&self, system_prompt: &str, user_message: &str) -> Result<String, AIAgentError> {
+        retry_with_backoff(self.config.max_retries, || self.call_api(system_prompt, user_message)).await
+    }
+
+    async fn generate_with_history(&self, messages: &[ChatMessage]) -> Result<String, AIAgentError> {
+        let messages = messages.to_vec();
+        retry_with_backoff(self.config.max_retries, || self.call_api_with_messages(&messages)).await
+    }
+
+    async fn generate_stream(&self, system_prompt: &str, user_message: &str) -> Result<mpsc::Receiver<StreamChunk>, AIAgentError> {
+        let response = self.generate_response(system_prompt, user_message).await?;
+        let (tx, rx) = mpsc::channel(2);
+        tokio::spawn(async move {
+            let _ = tx.send(StreamChunk { content: response, is_final: false }).await;
+            let _ = tx.send(StreamChunk { content: String::new(), is_final: true }).await;
+        });
+        Ok(rx)
+    }
+
+    fn provider(&self) -> LLMProvider { LLMProvider::Tongyi }
+    fn model(&self) -> &str { &self.config.model }
+    fn config(&self) -> &LLMConfig { &self.config }
+}
+
+// ============== Wenxin Client (文心一言) ==============
+
+/// Wenxin Yiyan (文心一言) LLM client - Baidu
+/// Note: Wenxin has a different API format, but we use OpenAI-compatible endpoint
+/// Models: ernie-speed-128k, ernie-lite-8k, ernie-4.0-8k
+pub struct WenxinClient {
+    client: Client,
+    config: LLMConfig,
+}
+
+impl WenxinClient {
+    pub fn new(api_key: String, secret_key: String, model: Option<String>) -> Self {
+        Self::from_config(LLMConfig::wenxin(api_key, secret_key, model))
+    }
+
+    pub fn from_config(config: LLMConfig) -> Self {
+        Self {
+            client: Client::new(),
+            config,
+        }
+    }
+
+    fn api_base(&self) -> &str {
+        self.config
+            .api_base
+            .as_deref()
+            .unwrap_or("https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop/chat")
+    }
+
+    async fn call_api(&self, system_prompt: &str, user_message: &str) -> Result<String, AIAgentError> {
+        let messages = vec![
+            ChatMessage::system(system_prompt),
+            ChatMessage::user(user_message),
+        ];
+        self.call_api_with_messages(&messages).await
+    }
+
+    async fn call_api_with_messages(&self, messages: &[ChatMessage]) -> Result<String, AIAgentError> {
+        // Wenxin uses a different format - we'll use the OpenAI-compatible endpoint if available
+        // For now, use simplified approach
+        let openai_messages: Vec<OpenAIChatMessage> = messages
+            .iter()
+            .map(|m| OpenAIChatMessage {
+                role: match m.role {
+                    ChatRole::System => "system".to_string(),
+                    ChatRole::User => "user".to_string(),
+                    ChatRole::Assistant => "assistant".to_string(),
+                },
+                content: m.content.clone(),
+            })
+            .collect();
+
+        let request = OpenAIChatRequest {
+            model: self.config.model.clone(),
+            messages: openai_messages,
+            max_tokens: self.config.max_tokens,
+            temperature: self.config.temperature,
+            stream: None,
+        };
+
+        // Extract API key and secret from combined format
+        let auth_header = if self.config.api_key.contains(':') {
+            // Use access token approach for Wenxin
+            format!("Bearer {}", self.config.api_key.split(':').next().unwrap_or(&self.config.api_key))
+        } else {
+            format!("Bearer {}", self.config.api_key)
+        };
+
+        let response = self
+            .client
+            .post(format!("{}/{}", self.api_base(), self.config.model))
+            .header("Authorization", auth_header)
+            .header("Content-Type", "application/json")
+            .timeout(Duration::from_secs(self.config.timeout_secs))
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| {
+                if e.is_timeout() {
+                    AIAgentError::LLMTimeout(self.config.timeout_secs)
+                } else {
+                    AIAgentError::LLMError(e.to_string())
+                }
+            })?;
+
+        handle_response::<OpenAIChatResponse>(response, |r| {
+            r.choices.first().map(|c| c.message.content.clone())
+        })
+        .await
+    }
+}
+
+#[async_trait]
+impl LLMClient for WenxinClient {
+    async fn generate_response(&self, system_prompt: &str, user_message: &str) -> Result<String, AIAgentError> {
+        retry_with_backoff(self.config.max_retries, || self.call_api(system_prompt, user_message)).await
+    }
+
+    async fn generate_with_history(&self, messages: &[ChatMessage]) -> Result<String, AIAgentError> {
+        let messages = messages.to_vec();
+        retry_with_backoff(self.config.max_retries, || self.call_api_with_messages(&messages)).await
+    }
+
+    async fn generate_stream(&self, system_prompt: &str, user_message: &str) -> Result<mpsc::Receiver<StreamChunk>, AIAgentError> {
+        let response = self.generate_response(system_prompt, user_message).await?;
+        let (tx, rx) = mpsc::channel(2);
+        tokio::spawn(async move {
+            let _ = tx.send(StreamChunk { content: response, is_final: false }).await;
+            let _ = tx.send(StreamChunk { content: String::new(), is_final: true }).await;
+        });
+        Ok(rx)
+    }
+
+    fn provider(&self) -> LLMProvider { LLMProvider::Wenxin }
+    fn model(&self) -> &str { &self.config.model }
+    fn config(&self) -> &LLMConfig { &self.config }
+}
+
 // ============== Helper Functions ==============
 
 /// Handle HTTP response and extract content
@@ -1566,6 +2081,30 @@ impl LLMClientFactory {
         Arc::new(SiliconFlowClient::new(api_key, model))
     }
 
+    /// Create Zhipu AI (智谱 AI) client
+    /// Models: glm-4, glm-4-flash, glm-4-air
+    pub fn zhipu(api_key: String, model: Option<String>) -> Arc<dyn LLMClient> {
+        Arc::new(ZhipuClient::new(api_key, model))
+    }
+
+    /// Create Moonshot (月之暗面 Kimi) client
+    /// Models: moonshot-v1-8k, moonshot-v1-32k, moonshot-v1-128k
+    pub fn moonshot(api_key: String, model: Option<String>) -> Arc<dyn LLMClient> {
+        Arc::new(MoonshotClient::new(api_key, model))
+    }
+
+    /// Create Tongyi Qianwen (通义千问) client - Alibaba
+    /// Models: qwen-turbo, qwen-plus, qwen-max
+    pub fn tongyi(api_key: String, model: Option<String>) -> Arc<dyn LLMClient> {
+        Arc::new(TongyiClient::new(api_key, model))
+    }
+
+    /// Create Wenxin Yiyan (文心一言) client - Baidu
+    /// Models: ernie-speed-128k, ernie-lite-8k, ernie-4.0-8k
+    pub fn wenxin(api_key: String, secret_key: String, model: Option<String>) -> Arc<dyn LLMClient> {
+        Arc::new(WenxinClient::new(api_key, secret_key, model))
+    }
+
     /// Create client from config
     pub fn from_config(config: LLMConfig) -> Arc<dyn LLMClient> {
         match config.provider {
@@ -1575,6 +2114,11 @@ impl LLMClientFactory {
             LLMProvider::Anthropic => Arc::new(AnthropicClient::from_config(config)),
             LLMProvider::Google => Arc::new(GoogleGeminiClient::from_config(config)),
             LLMProvider::SiliconFlow => Arc::new(SiliconFlowClient::from_config(config)),
+            // Domestic providers using OpenAI-compatible API
+            LLMProvider::Zhipu => Arc::new(ZhipuClient::from_config(config)),
+            LLMProvider::Moonshot => Arc::new(MoonshotClient::from_config(config)),
+            LLMProvider::Tongyi => Arc::new(TongyiClient::from_config(config)),
+            LLMProvider::Wenxin => Arc::new(WenxinClient::from_config(config)),
         }
     }
 
@@ -1596,6 +2140,10 @@ pub fn create_llm_client_from_env() -> Option<Box<dyn LLMClient>> {
             LLMProvider::SiliconFlow => {
                 Box::new(SiliconFlowClient::from_config(arc.config().clone()))
             }
+            LLMProvider::Zhipu => Box::new(ZhipuClient::from_config(arc.config().clone())),
+            LLMProvider::Moonshot => Box::new(MoonshotClient::from_config(arc.config().clone())),
+            LLMProvider::Tongyi => Box::new(TongyiClient::from_config(arc.config().clone())),
+            LLMProvider::Wenxin => Box::new(WenxinClient::from_config(arc.config().clone())),
             LLMProvider::Custom => Box::new(OpenAIClient::from_config(arc.config().clone())),
         };
         client
@@ -1850,5 +2398,127 @@ mod tests {
         assert_eq!(converted.len(), 1);
         assert!(converted[0].parts[0].text.contains("System prompt"));
         assert!(converted[0].parts[0].text.contains("User message"));
+    }
+
+    // ============== Domestic LLM Client Tests ==============
+
+    #[test]
+    fn test_zhipu_client_creation() {
+        let client = ZhipuClient::new("test-key".to_string(), Some("glm-4".to_string()));
+        assert_eq!(client.config.api_key, "test-key");
+        assert_eq!(client.config.model, "glm-4");
+        assert_eq!(client.provider(), LLMProvider::Zhipu);
+        assert_eq!(client.api_base(), "https://open.bigmodel.cn/api/paas/v4");
+    }
+
+    #[test]
+    fn test_zhipu_default_model() {
+        let client = ZhipuClient::new("test-key".to_string(), None);
+        assert_eq!(client.config.model, "glm-4-flash");
+    }
+
+    #[test]
+    fn test_zhipu_config() {
+        let config = LLMConfig::zhipu("test-key".to_string(), Some("glm-4-air".to_string()));
+        assert_eq!(config.provider, LLMProvider::Zhipu);
+        assert_eq!(config.api_base, Some("https://open.bigmodel.cn/api/paas/v4".to_string()));
+        assert_eq!(config.model, "glm-4-air");
+    }
+
+    #[test]
+    fn test_moonshot_client_creation() {
+        let client = MoonshotClient::new("test-key".to_string(), Some("moonshot-v1-32k".to_string()));
+        assert_eq!(client.config.api_key, "test-key");
+        assert_eq!(client.config.model, "moonshot-v1-32k");
+        assert_eq!(client.provider(), LLMProvider::Moonshot);
+        assert_eq!(client.api_base(), "https://api.moonshot.cn/v1");
+    }
+
+    #[test]
+    fn test_moonshot_default_model() {
+        let client = MoonshotClient::new("test-key".to_string(), None);
+        assert_eq!(client.config.model, "moonshot-v1-8k");
+    }
+
+    #[test]
+    fn test_moonshot_config() {
+        let config = LLMConfig::moonshot("test-key".to_string(), Some("moonshot-v1-128k".to_string()));
+        assert_eq!(config.provider, LLMProvider::Moonshot);
+        assert_eq!(config.api_base, Some("https://api.moonshot.cn/v1".to_string()));
+        assert_eq!(config.model, "moonshot-v1-128k");
+    }
+
+    #[test]
+    fn test_tongyi_client_creation() {
+        let client = TongyiClient::new("test-key".to_string(), Some("qwen-plus".to_string()));
+        assert_eq!(client.config.api_key, "test-key");
+        assert_eq!(client.config.model, "qwen-plus");
+        assert_eq!(client.provider(), LLMProvider::Tongyi);
+        assert_eq!(client.api_base(), "https://dashscope.aliyuncs.com/compatible-mode/v1");
+    }
+
+    #[test]
+    fn test_tongyi_default_model() {
+        let client = TongyiClient::new("test-key".to_string(), None);
+        assert_eq!(client.config.model, "qwen-turbo");
+    }
+
+    #[test]
+    fn test_tongyi_config() {
+        let config = LLMConfig::tongyi("test-key".to_string(), Some("qwen-max".to_string()));
+        assert_eq!(config.provider, LLMProvider::Tongyi);
+        assert_eq!(config.api_base, Some("https://dashscope.aliyuncs.com/compatible-mode/v1".to_string()));
+        assert_eq!(config.model, "qwen-max");
+    }
+
+    #[test]
+    fn test_wenxin_client_creation() {
+        let client = WenxinClient::new("api-key".to_string(), "secret-key".to_string(), Some("ernie-4.0-8k".to_string()));
+        assert!(client.config.api_key.contains("api-key"));
+        assert!(client.config.api_key.contains("secret-key"));
+        assert_eq!(client.config.model, "ernie-4.0-8k");
+        assert_eq!(client.provider(), LLMProvider::Wenxin);
+    }
+
+    #[test]
+    fn test_wenxin_default_model() {
+        let client = WenxinClient::new("api-key".to_string(), "secret-key".to_string(), None);
+        assert_eq!(client.config.model, "ernie-speed-128k");
+    }
+
+    #[test]
+    fn test_wenxin_config() {
+        let config = LLMConfig::wenxin("api-key".to_string(), "secret-key".to_string(), Some("ernie-lite-8k".to_string()));
+        assert_eq!(config.provider, LLMProvider::Wenxin);
+        assert_eq!(config.model, "ernie-lite-8k");
+        // API key should contain both api_key and secret_key
+        assert!(config.api_key.contains(':'));
+    }
+
+    #[test]
+    fn test_domestic_factory_methods() {
+        let zhipu = LLMClientFactory::zhipu("key".to_string(), Some("glm-4".to_string()));
+        assert_eq!(zhipu.provider(), LLMProvider::Zhipu);
+        assert_eq!(zhipu.model(), "glm-4");
+
+        let moonshot = LLMClientFactory::moonshot("key".to_string(), Some("moonshot-v1-8k".to_string()));
+        assert_eq!(moonshot.provider(), LLMProvider::Moonshot);
+        assert_eq!(moonshot.model(), "moonshot-v1-8k");
+
+        let tongyi = LLMClientFactory::tongyi("key".to_string(), Some("qwen-turbo".to_string()));
+        assert_eq!(tongyi.provider(), LLMProvider::Tongyi);
+        assert_eq!(tongyi.model(), "qwen-turbo");
+
+        let wenxin = LLMClientFactory::wenxin("api".to_string(), "secret".to_string(), Some("ernie-speed-128k".to_string()));
+        assert_eq!(wenxin.provider(), LLMProvider::Wenxin);
+        assert_eq!(wenxin.model(), "ernie-speed-128k");
+    }
+
+    #[test]
+    fn test_provider_display_domestic() {
+        assert_eq!(format!("{}", LLMProvider::Zhipu), "Zhipu");
+        assert_eq!(format!("{}", LLMProvider::Moonshot), "Moonshot");
+        assert_eq!(format!("{}", LLMProvider::Tongyi), "Tongyi");
+        assert_eq!(format!("{}", LLMProvider::Wenxin), "Wenxin");
     }
 }

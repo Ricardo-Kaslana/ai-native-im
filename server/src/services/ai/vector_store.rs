@@ -13,8 +13,22 @@ use uuid::Uuid;
 use super::AIAgentError;
 use crate::models::HistoricalMessage;
 
-/// Vector dimension for embeddings (OpenAI text-embedding-3-small)
-pub const EMBEDDING_DIMENSION: u64 = 1536;
+/// Default vector dimension for embeddings
+/// - OpenAI text-embedding-3-small: 1536
+/// - OpenAI text-embedding-ada-002: 1536
+/// - SiliconFlow BAAI/bge-large-zh-v1.5: 1024
+/// - SiliconFlow BAAI/bge-m3: 1024
+/// 
+/// Can be overridden via EMBEDDING_DIMENSION environment variable
+pub fn get_embedding_dimension() -> u64 {
+    std::env::var("EMBEDDING_DIMENSION")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1024) // Default to 1024 for SiliconFlow compatibility
+}
+
+/// Legacy constant for backward compatibility
+pub const EMBEDDING_DIMENSION: u64 = 1024;
 
 /// Collection name for message embeddings
 pub const MESSAGES_COLLECTION: &str = "chat_messages";
@@ -54,8 +68,17 @@ pub struct QdrantVectorStore {
 
 impl QdrantVectorStore {
     /// Create a new Qdrant vector store
+    /// 
+    /// URL format:
+    /// - For gRPC: "http://localhost:6334" or "localhost:6334"
+    /// - The qdrant-client library uses gRPC by default
     pub async fn new(url: &str) -> Result<Self, AIAgentError> {
+        // qdrant-client uses gRPC protocol
+        // Port 6334 is the default gRPC port for Qdrant
+        // Port 6333 is HTTP REST (not supported by this client)
         let client = Qdrant::from_url(url)
+            .api_key(std::env::var("QDRANT_API_KEY").ok())
+            .skip_compatibility_check() // Skip version check to avoid connection issues
             .build()
             .map_err(|e| AIAgentError::VectorDBError(format!("Failed to connect to Qdrant: {}", e)))?;
 
@@ -72,6 +95,8 @@ impl QdrantVectorStore {
 
     /// Ensure the collection exists with proper configuration
     async fn ensure_collection(&self) -> Result<(), AIAgentError> {
+        let dimension = get_embedding_dimension();
+        
         let exists = self
             .client
             .collection_exists(&self.collection_name)
@@ -79,17 +104,17 @@ impl QdrantVectorStore {
             .map_err(|e| AIAgentError::VectorDBError(format!("Failed to check collection: {}", e)))?;
 
         if !exists {
-            info!("Creating Qdrant collection: {}", self.collection_name);
+            info!("Creating Qdrant collection: {} with dimension {}", self.collection_name, dimension);
 
             self.client
                 .create_collection(
                     CreateCollectionBuilder::new(&self.collection_name)
-                        .vectors_config(VectorParamsBuilder::new(EMBEDDING_DIMENSION, Distance::Cosine)),
+                        .vectors_config(VectorParamsBuilder::new(dimension, Distance::Cosine)),
                 )
                 .await
                 .map_err(|e| AIAgentError::VectorDBError(format!("Failed to create collection: {}", e)))?;
 
-            info!("Created Qdrant collection: {}", self.collection_name);
+            info!("Created Qdrant collection: {} with dimension {}", self.collection_name, dimension);
         }
 
         Ok(())

@@ -1,6 +1,8 @@
 pub mod admin;
 pub mod ai_agents;
 pub mod auth;
+pub mod contacts;
+pub mod conversations;
 pub mod groups;
 pub mod media;
 pub mod message_ws;
@@ -9,8 +11,10 @@ pub mod users;
 pub mod ws;
 
 pub use admin::admin_routes;
-pub use ai_agents::ai_agent_routes;
+pub use ai_agents::{ai_agent_routes, ai_agent_routes_with_llm};
 pub use auth::{auth_protected_routes, auth_routes};
+pub use contacts::contact_routes;
+pub use conversations::conversation_routes;
 pub use groups::group_routes;
 pub use media::{media_routes, MediaState};
 pub use message_ws::{create_ws_router, WsAppState, WsQuery};

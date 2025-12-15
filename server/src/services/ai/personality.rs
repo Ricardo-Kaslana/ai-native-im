@@ -1,7 +1,9 @@
 use crate::models::{AIAgent, HistoricalMessage, PersonalityConfig, UserAffinityInfo};
 use sqlx::PgPool;
 
-
+use super::cot::{CoTConfig, CoTProcessor};
+use super::intent::{IntentResult, generate_intent_prompt};
+use super::user_profile::{UserProfile, UserProfileService};
 use super::AIAgentError;
 
 /// Personality manager trait
@@ -12,6 +14,97 @@ pub trait PersonalityManager: Send + Sync {
         recent_messages: &[String],
         historical_context: &[HistoricalMessage],
     ) -> String;
+    
+    /// Generate system prompt with Chain of Thought support
+    fn generate_system_prompt_with_cot(
+        &self,
+        config: &PersonalityConfig,
+        recent_messages: &[String],
+        historical_context: &[HistoricalMessage],
+        cot_config: Option<&CoTConfig>,
+    ) -> String {
+        let base_prompt = self.generate_system_prompt(config, recent_messages, historical_context);
+        
+        if let Some(cot_cfg) = cot_config {
+            if cot_cfg.enabled {
+                let processor = CoTProcessor::with_config(cot_cfg.clone());
+                let cot_instruction = processor.generate_instruction();
+                return format!("{}{}", base_prompt, cot_instruction);
+            }
+        }
+        
+        base_prompt
+    }
+    
+    /// Generate system prompt with user profile context
+    fn generate_system_prompt_with_user_profile(
+        &self,
+        config: &PersonalityConfig,
+        recent_messages: &[String],
+        historical_context: &[HistoricalMessage],
+        user_profile: Option<&UserProfile>,
+        username: &str,
+        cot_config: Option<&CoTConfig>,
+    ) -> String {
+        let mut base_prompt = self.generate_system_prompt(config, recent_messages, historical_context);
+        
+        // Add user profile context
+        if let Some(profile) = user_profile {
+            let profile_service = UserProfileService::new(sqlx::postgres::PgPool::connect_lazy("postgres://").unwrap());
+            let user_context = profile_service.generate_user_context(profile, username);
+            base_prompt.push_str(&user_context);
+        }
+        
+        // Add CoT instructions if enabled
+        if let Some(cot_cfg) = cot_config {
+            if cot_cfg.enabled {
+                let processor = CoTProcessor::with_config(cot_cfg.clone());
+                let cot_instruction = processor.generate_instruction();
+                base_prompt.push_str(&cot_instruction);
+            }
+        }
+        
+        base_prompt
+    }
+    
+    /// Generate comprehensive system prompt with all context
+    /// Includes: user profile, intent analysis, and CoT
+    fn generate_comprehensive_prompt(
+        &self,
+        config: &PersonalityConfig,
+        recent_messages: &[String],
+        historical_context: &[HistoricalMessage],
+        user_profile: Option<&UserProfile>,
+        username: &str,
+        intent_result: Option<&IntentResult>,
+        cot_config: Option<&CoTConfig>,
+    ) -> String {
+        let mut base_prompt = self.generate_system_prompt(config, recent_messages, historical_context);
+        
+        // Add user profile context
+        if let Some(profile) = user_profile {
+            let profile_service = UserProfileService::new(sqlx::postgres::PgPool::connect_lazy("postgres://").unwrap());
+            let user_context = profile_service.generate_user_context(profile, username);
+            base_prompt.push_str(&user_context);
+        }
+        
+        // Add intent analysis context
+        if let Some(intent) = intent_result {
+            let intent_prompt = generate_intent_prompt(intent);
+            base_prompt.push_str(&intent_prompt);
+        }
+        
+        // Add CoT instructions if enabled
+        if let Some(cot_cfg) = cot_config {
+            if cot_cfg.enabled {
+                let processor = CoTProcessor::with_config(cot_cfg.clone());
+                let cot_instruction = processor.generate_instruction();
+                base_prompt.push_str(&cot_instruction);
+            }
+        }
+        
+        base_prompt
+    }
 }
 
 /// Default personality manager implementation

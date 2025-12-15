@@ -56,19 +56,39 @@ cargo run
 
 服务器将运行在 `http://localhost:8080`
 
-### 3. 运行测试
+### 3. 运行测试 (后端)
 ```bash
 cd server
 cargo test --lib --tests
 ```
 
-### 4. 编译检查
+### 4. 启动客户端
+```bash
+cd client
+
+# 获取依赖
+flutter pub get
+
+# 生成代码 (JSON序列化等)
+dart run build_runner build --delete-conflicting-outputs
+
+# 运行应用 (Windows)
+flutter run -d windows
+
+# 运行应用 (Chrome)
+flutter run -d chrome
+
+# 代码规范检查
+flutter analyze lib/
+```
+
+### 5. 编译检查 (后端)
 ```bash
 cd server
 cargo check
 ```
 
-### 5. 查看 Docker 日志
+### 6. 查看 Docker 日志
 ```bash
 # 查看所有服务日志
 sudo docker compose logs -f
@@ -79,7 +99,7 @@ sudo docker compose logs -f redis
 sudo docker compose logs -f qdrant
 ```
 
-### 6. 管理 Docker 服务
+### 7. 管理 Docker 服务
 ```bash
 # 启动所有服务
 sudo docker compose up -d
@@ -128,10 +148,18 @@ ai-native-im/
 │   ├── migrations/     # 数据库迁移
 │   ├── Cargo.toml      # 依赖配置
 │   └── .env            # 环境变量
-├── client/             # Flutter 客户端 (待开发)
+├── client/             # Flutter 客户端
+│   ├── lib/src/        # 源代码
+│   │   ├── core/       # 核心基础设施
+│   │   ├── features/   # 功能模块 (auth/chat等)
+│   │   ├── shared/     # 共享组件
+│   │   └── generated/  # 生成代码
+│   ├── test/           # 测试
+│   └── pubspec.yaml    # 依赖配置
 ├── protos/             # Protocol Buffers 定义
-├── docker-compose.yml  # Docker 配置
-└── check-env.sh        # 环境检查脚本
+├── archive/docs/       # 核心文档 (API/错误码等)
+├── docker-compose.dev.yml  # Docker 配置
+└── changelogs/         # 更新日志
 ```
 
 ## 环境变量
@@ -198,6 +226,8 @@ sudo docker compose up -d
 1. ✅ 环境配置完成
 2. ✅ 数据库迁移完成
 3. ✅ 项目编译成功
-4. 🚀 开始开发！
+4. ✅ 客户端基础架构完成
+5. 🚀 开始开发！
 
-查看 [README.md](README.md) 了解项目详情。
+查看 [CLIENT_DEVELOPMENT_PLAN.md](CLIENT_DEVELOPMENT_PLAN.md) 了解客户端开发计划。
+查看 [archive/docs/PROJECT_OVERVIEW.md](archive/docs/PROJECT_OVERVIEW.md) 了解项目整体架构。

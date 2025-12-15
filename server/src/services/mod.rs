@@ -18,11 +18,12 @@ pub use ai::{
     DatabaseAgentIdResolver, DefaultPersonalityManager, DefaultTriggerEvaluator,
     DefaultTypingSimulator, DirectAgentIdResolver, EmbeddingService, FastTypingSimulator,
     GoogleGeminiClient, LLMClient, LLMClientFactory, LLMConfig, LLMProvider, MessageContent,
-    MockEmbeddingService, MockLLMClient, MockVectorStore, MockVisionModel, MultimodalProcessor,
-    OpenAIClient, OpenAIEmbedding, OpenAIVision, PersonalityManager, QdrantVectorStore,
-    RouterMessageSender, SiliconFlowClient, SiliconFlowEmbedding, SiliconFlowVision, StreamChunk,
-    TriggerEvaluator, TypingSimulator, VectorStore, VisionModel, WebSocketMessageSender,
-    EMBEDDING_DIMENSION, MESSAGES_COLLECTION,
+    MockEmbeddingService, MockLLMClient, MockVectorStore, MockVisionModel, MoonshotClient,
+    MultimodalProcessor, OpenAIClient, OpenAIEmbedding, OpenAIVision, PersonalityManager,
+    QdrantVectorStore, RouterMessageSender, SiliconFlowClient, SiliconFlowEmbedding,
+    SiliconFlowVision, StreamChunk, TongyiClient, TriggerEvaluator, TypingSimulator, VectorStore,
+    VisionModel, WebSocketMessageSender, WenxinClient, ZhipuClient, EMBEDDING_DIMENSION,
+    MESSAGES_COLLECTION,
 };
 pub use email::{EmailError, EmailService, EmailTemplate, MockEmailService};
 pub use group::{

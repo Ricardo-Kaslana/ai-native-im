@@ -95,6 +95,7 @@ async fn test_agent_with_vector_store() {
                 description: None,
                 avatar: None,
                 is_public: None,
+                member_ids: None,
             },
         )
         .await
@@ -157,6 +158,7 @@ async fn test_process_message_with_mention() {
                 description: None,
                 avatar: None,
                 is_public: None,
+                member_ids: None,
             },
         )
         .await
@@ -210,6 +212,7 @@ async fn test_process_message_with_keyword() {
                 description: None,
                 avatar: None,
                 is_public: None,
+                member_ids: None,
             },
         )
         .await
@@ -266,6 +269,7 @@ async fn test_delete_group_embeddings() {
                 description: None,
                 avatar: None,
                 is_public: None,
+                member_ids: None,
             },
         )
         .await
@@ -377,6 +381,7 @@ async fn test_agent_message_handler_with_mention() {
                 description: None,
                 avatar: None,
                 is_public: None,
+                member_ids: None,
             },
         )
         .await
@@ -440,6 +445,7 @@ async fn test_agent_message_handler_no_agent() {
                 description: None,
                 avatar: None,
                 is_public: None,
+                member_ids: None,
             },
         )
         .await
@@ -482,6 +488,7 @@ async fn test_agent_message_handler_random_message() {
                 description: None,
                 avatar: None,
                 is_public: None,
+                member_ids: None,
             },
         )
         .await

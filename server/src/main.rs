@@ -110,20 +110,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::new(PostgresMessagePersister::new(pool.clone()));
     let dedup_cache = Arc::new(InMemoryDedupCache::new(Duration::from_secs(300)));
     
-    let message_router = Arc::new(MessageRouterImpl::new(
-        message_connection_manager.clone(),
-        dedup_cache,
-        message_persister,
-    ));
+    let base_router = Arc::new(
+        MessageRouterImpl::new(
+            message_connection_manager.clone(),
+            dedup_cache,
+            message_persister,
+        ).with_pool(pool.clone())
+    );
 
     // 初始化AI Agent系统
+    tracing::info!("🤖 Initializing AI Agent system...");
     let ai_config = ai_im_server::services::AIAgentSystemConfig::default();
     let mut ai_system = ai_im_server::services::AIAgentSystem::new(pool.clone(), ai_config)
         .await
         .expect("Failed to initialize AI Agent system");
     
+    // 使用 AI 增强的消息路由器
+    use ai_im_server::services::AIMessageRouter;
+    let message_router = Arc::new(
+        AIMessageRouter::new(base_router.clone())
+            .with_agent_handler(ai_system.message_handler.clone())
+            .with_response_channel(ai_system.response_sender())
+    );
+    
     // 启动AI响应工作器
-    let _ai_worker_handle = ai_system.start_response_worker(message_router.clone());
+    let _ai_worker_handle = ai_system.start_response_worker(base_router.clone());
+    tracing::info!("✅ AI Agent system initialized");
     
     let token_service_for_ws = Arc::new(TokenService::with_redis(
         jwt_secret.clone(),
@@ -159,8 +171,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .nest("/users", api::user_routes(app_state.clone()))
         .nest("/admin", api::admin_routes(app_state.clone()))
         .nest("/groups", api::group_routes(pool.clone()))
+        .merge(api::conversation_routes(pool.clone()))
+        .merge(api::contact_routes(pool.clone()))
         .merge(api::ai_agent_routes(pool.clone()))
-        .route("/ws", get(api::ws_handler).with_state(ws_state))
         .layer(axum_middleware::from_fn_with_state(
             jwt_auth.clone(),
             middleware::JwtAuth::verify,

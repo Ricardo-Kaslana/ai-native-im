@@ -1,9 +1,10 @@
+use crate::error::AppError;
 use crate::middleware::UserContext;
-use crate::services::auth::{AuthError, AuthService, ChangePasswordData, LoginData, RegisterData};
+use crate::response::ApiResponse;
+use crate::services::auth::{AuthService, ChangePasswordData, LoginData, RegisterData};
 use axum::{
     extract::State,
-    http::StatusCode,
-    response::{IntoResponse, Json, Response},
+    response::Json,
     routing::post,
     Extension, Router,
 };
@@ -29,6 +30,7 @@ pub struct RegisterRequest {
 /// Login request
 #[derive(Debug, Deserialize)]
 pub struct LoginRequest {
+    #[serde(alias = "email")]
     pub username: String,
     pub password: String,
 }
@@ -59,79 +61,46 @@ pub struct RefreshTokenRequest {
     pub refresh_token: String,
 }
 
-/// Auth response
+/// User info in auth response
 #[derive(Debug, Serialize)]
-pub struct AuthResponse {
-    pub user: serde_json::Value,
+pub struct UserInfo {
+    pub id: String,
+    pub username: String,
+    pub email: String,
+    pub avatar_url: Option<String>,
+    pub bio: Option<String>,
+    pub online_status: crate::models::user::OnlineStatus,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Auth response data
+#[derive(Debug, Serialize)]
+pub struct AuthResponseData {
+    pub user: UserInfo,
     pub access_token: String,
     pub refresh_token: String,
 }
 
-/// Success response
+/// Token refresh response data
 #[derive(Debug, Serialize)]
-pub struct SuccessResponse {
+pub struct TokenRefreshData {
+    pub access_token: String,
+    pub refresh_token: String,
+}
+
+/// Success message response
+#[derive(Debug, Serialize)]
+pub struct MessageData {
     pub message: String,
-}
-
-/// Error response
-#[derive(Debug, Serialize)]
-pub struct ErrorResponse {
-    pub error: String,
-}
-
-/// Convert AuthError to HTTP response
-impl IntoResponse for AuthError {
-    fn into_response(self) -> Response {
-        let (status, message) = match self {
-            AuthError::InvalidCredentials => (StatusCode::UNAUTHORIZED, "Invalid credentials"),
-            AuthError::AccountLocked => (StatusCode::FORBIDDEN, "Account is locked"),
-            AuthError::UserNotFound => (StatusCode::NOT_FOUND, "User not found"),
-            AuthError::UsernameExists => (StatusCode::CONFLICT, "Username already exists"),
-            AuthError::EmailExists => (StatusCode::CONFLICT, "Email already exists"),
-            AuthError::InvalidPassword => (StatusCode::BAD_REQUEST, "Invalid password format"),
-            AuthError::IncorrectCurrentPassword => {
-                (StatusCode::BAD_REQUEST, "Current password is incorrect")
-            }
-            AuthError::UserError(user_err) => {
-                // Handle nested UserError
-                match user_err {
-                    crate::services::auth::UserError::UsernameExists => {
-                        (StatusCode::CONFLICT, "Username already exists")
-                    }
-                    crate::services::auth::UserError::EmailExists => {
-                        (StatusCode::CONFLICT, "Email already exists")
-                    }
-                    crate::services::auth::UserError::NotFound => {
-                        (StatusCode::NOT_FOUND, "User not found")
-                    }
-                    crate::services::auth::UserError::InvalidUsername => {
-                        (StatusCode::BAD_REQUEST, "Invalid username")
-                    }
-                    crate::services::auth::UserError::InvalidAvatarUrl => {
-                        (StatusCode::BAD_REQUEST, "Invalid avatar URL")
-                    }
-                    crate::services::auth::UserError::BioTooLong => {
-                        (StatusCode::BAD_REQUEST, "Bio too long")
-                    }
-                    _ => (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error"),
-                }
-            }
-            _ => (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error"),
-        };
-
-        let body = Json(ErrorResponse {
-            error: message.to_string(),
-        });
-
-        (status, body).into_response()
-    }
 }
 
 /// POST /auth/register - Register a new user
 async fn register(
     State(state): State<AppState>,
     Json(req): Json<RegisterRequest>,
-) -> Result<Json<AuthResponse>, AuthError> {
+) -> Result<Json<ApiResponse<AuthResponseData>>, AppError> {
+    tracing::info!("📝 Registration request: username={}, email={}", req.username, req.email);
+    
     let data = RegisterData {
         username: req.username,
         email: req.email,
@@ -139,61 +108,62 @@ async fn register(
     };
 
     let (user, tokens) = state.auth_service.register(data).await?;
+    tracing::info!("✅ User registered successfully: {}", user.id);
 
-    let response = AuthResponse {
-        user: serde_json::json!({
-            "id": user.id,
-            "username": user.username,
-            "email": user.email,
-            "avatar_url": user.avatar_url,
-            "bio": user.bio,
-            "online_status": user.online_status,
-            "created_at": user.created_at,
-        }),
+    let response = AuthResponseData {
+        user: UserInfo {
+            id: user.id.to_string(),
+            username: user.username,
+            email: user.email,
+            avatar_url: user.avatar_url,
+            bio: user.bio,
+            online_status: user.online_status,
+            created_at: user.created_at,
+        },
         access_token: tokens.access_token,
         refresh_token: tokens.refresh_token,
     };
 
-    Ok(Json(response))
+    Ok(Json(ApiResponse::success(response)))
 }
 
 /// POST /auth/login - Login a user
 async fn login(
     State(state): State<AppState>,
     Json(req): Json<LoginRequest>,
-) -> Result<Json<AuthResponse>, AuthError> {
+) -> Result<Json<ApiResponse<AuthResponseData>>, AppError> {
     let data = LoginData {
         username: req.username,
         password: req.password,
     };
 
-    // Clone the auth service to make it mutable
     let mut auth_service = (*state.auth_service).clone();
     let (user, tokens) = auth_service.login(data).await?;
 
-    let response = AuthResponse {
-        user: serde_json::json!({
-            "id": user.id,
-            "username": user.username,
-            "email": user.email,
-            "avatar_url": user.avatar_url,
-            "bio": user.bio,
-            "online_status": user.online_status,
-            "created_at": user.created_at,
-        }),
+    let response = AuthResponseData {
+        user: UserInfo {
+            id: user.id.to_string(),
+            username: user.username,
+            email: user.email,
+            avatar_url: user.avatar_url,
+            bio: user.bio,
+            online_status: user.online_status,
+            created_at: user.created_at,
+        },
         access_token: tokens.access_token,
         refresh_token: tokens.refresh_token,
     };
 
-    Ok(Json(response))
+    Ok(Json(ApiResponse::success(response)))
 }
+
 
 /// POST /auth/logout - Logout a user
 async fn logout(
     State(state): State<AppState>,
     Extension(user_context): Extension<UserContext>,
     headers: axum::http::HeaderMap,
-) -> Result<Json<SuccessResponse>, AuthError> {
+) -> Result<Json<ApiResponse<MessageData>>, AppError> {
     // Extract token from Authorization header
     let token = headers
         .get(axum::http::header::AUTHORIZATION)
@@ -214,27 +184,22 @@ async fn logout(
         tracing::info!("Closed all WebSocket connections for user {}", user_context.user_id);
     }
 
-    Ok(Json(SuccessResponse {
+    Ok(Json(ApiResponse::success(MessageData {
         message: "Logged out successfully".to_string(),
-    }))
+    })))
 }
 
 /// POST /auth/refresh - Refresh access token
 async fn refresh_token(
     State(state): State<AppState>,
     Json(req): Json<RefreshTokenRequest>,
-) -> Result<Json<AuthResponse>, AuthError> {
+) -> Result<Json<ApiResponse<TokenRefreshData>>, AppError> {
     let tokens = state.auth_service.refresh_token(&req.refresh_token).await?;
 
-    // Parse user ID from refresh token to get username
-    // For now, just return minimal user info
-    let response = AuthResponse {
-        user: serde_json::json!({}),
+    Ok(Json(ApiResponse::success(TokenRefreshData {
         access_token: tokens.access_token,
         refresh_token: tokens.refresh_token,
-    };
-
-    Ok(Json(response))
+    })))
 }
 
 /// POST /auth/password/change - Change password
@@ -242,7 +207,7 @@ async fn change_password(
     State(state): State<AppState>,
     Extension(user_context): Extension<UserContext>,
     Json(req): Json<ChangePasswordRequest>,
-) -> Result<Json<SuccessResponse>, AuthError> {
+) -> Result<Json<ApiResponse<MessageData>>, AppError> {
     let data = ChangePasswordData {
         current_password: req.current_password,
         new_password: req.new_password,
@@ -253,42 +218,39 @@ async fn change_password(
         .change_password(&user_context.user_id, data)
         .await?;
 
-    Ok(Json(SuccessResponse {
+    Ok(Json(ApiResponse::success(MessageData {
         message: "Password changed successfully".to_string(),
-    }))
+    })))
 }
 
 /// POST /auth/password/reset/request - Request password reset
 async fn request_password_reset(
     State(state): State<AppState>,
     Json(req): Json<ResetPasswordRequest>,
-) -> Result<Json<SuccessResponse>, AuthError> {
+) -> Result<Json<ApiResponse<MessageData>>, AppError> {
     let _token = state
         .auth_service
         .request_password_reset(&req.email)
         .await?;
 
-    // In production, send email with token
-    // For now, just return success
-
-    Ok(Json(SuccessResponse {
+    Ok(Json(ApiResponse::success(MessageData {
         message: "Password reset email sent".to_string(),
-    }))
+    })))
 }
 
 /// POST /auth/password/reset/confirm - Confirm password reset
 async fn confirm_password_reset(
     State(state): State<AppState>,
     Json(req): Json<ResetPasswordConfirmRequest>,
-) -> Result<Json<SuccessResponse>, AuthError> {
+) -> Result<Json<ApiResponse<MessageData>>, AppError> {
     state
         .auth_service
         .complete_password_reset(&req.token, &req.new_password)
         .await?;
 
-    Ok(Json(SuccessResponse {
+    Ok(Json(ApiResponse::success(MessageData {
         message: "Password reset successfully".to_string(),
-    }))
+    })))
 }
 
 /// Create public auth routes (no authentication required)

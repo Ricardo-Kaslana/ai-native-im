@@ -10,8 +10,7 @@ ON group_members(user_id, group_id);
 
 -- Index for ban checks
 CREATE INDEX IF NOT EXISTS idx_group_bans_lookup 
-ON group_bans(group_id, user_id) 
-WHERE unbanned_at IS NULL;
+ON group_bans(group_id, user_id);
 
 -- Index for active groups search
 CREATE INDEX IF NOT EXISTS idx_groups_search 
@@ -33,8 +32,7 @@ ON group_audit_log(group_id, created_at DESC);
 
 -- Index for invite code lookup
 CREATE INDEX IF NOT EXISTS idx_group_invite_codes_lookup 
-ON group_invite_codes(code) 
-WHERE revoked_at IS NULL;
+ON group_invite_codes(code);
 
 -- Analyze tables to update statistics
 ANALYZE groups;

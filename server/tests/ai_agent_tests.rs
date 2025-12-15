@@ -51,8 +51,7 @@ async fn test_create_agent_success() {
     
     let owner_id = create_test_user(&pool, &format!("owner_{}", Uuid::new_v4())).await;
     let group = group_service.create_group(owner_id, CreateGroup {
-        name: "Test Group".to_string(), description: None, avatar: None, is_public: None,
-    }).await.unwrap();
+        name: "Test Group".to_string(), description: None, avatar: None, is_public: None, member_ids: None }).await.unwrap();
     
     let request = CreateAIAgent {
         name: "TestBot".to_string(),
@@ -85,8 +84,7 @@ async fn test_create_agent_default_values() {
     
     let owner_id = create_test_user(&pool, &format!("owner_{}", Uuid::new_v4())).await;
     let group = group_service.create_group(owner_id, CreateGroup {
-        name: "Test Group".to_string(), description: None, avatar: None, is_public: None,
-    }).await.unwrap();
+        name: "Test Group".to_string(), description: None, avatar: None, is_public: None, member_ids: None }).await.unwrap();
     
     let request = CreateAIAgent {
         name: "Bot".to_string(),
@@ -113,8 +111,7 @@ async fn test_create_agent_invalid_name() {
     
     let owner_id = create_test_user(&pool, &format!("owner_{}", Uuid::new_v4())).await;
     let group = group_service.create_group(owner_id, CreateGroup {
-        name: "Test Group".to_string(), description: None, avatar: None, is_public: None,
-    }).await.unwrap();
+        name: "Test Group".to_string(), description: None, avatar: None, is_public: None, member_ids: None }).await.unwrap();
     
     // Empty name
     let result = agent_service.create_agent(group.id, CreateAIAgent {
@@ -144,8 +141,7 @@ async fn test_create_agent_invalid_levels() {
     
     let owner_id = create_test_user(&pool, &format!("owner_{}", Uuid::new_v4())).await;
     let group = group_service.create_group(owner_id, CreateGroup {
-        name: "Test Group".to_string(), description: None, avatar: None, is_public: None,
-    }).await.unwrap();
+        name: "Test Group".to_string(), description: None, avatar: None, is_public: None, member_ids: None }).await.unwrap();
     
     // Invalid toxicity
     let result = agent_service.create_agent(group.id, CreateAIAgent {
@@ -178,8 +174,7 @@ async fn test_create_agent_already_exists() {
     
     let owner_id = create_test_user(&pool, &format!("owner_{}", Uuid::new_v4())).await;
     let group = group_service.create_group(owner_id, CreateGroup {
-        name: "Test Group".to_string(), description: None, avatar: None, is_public: None,
-    }).await.unwrap();
+        name: "Test Group".to_string(), description: None, avatar: None, is_public: None, member_ids: None }).await.unwrap();
     
     // Create first agent
     agent_service.create_agent(group.id, CreateAIAgent {
@@ -210,8 +205,7 @@ async fn test_update_personality() {
     
     let owner_id = create_test_user(&pool, &format!("owner_{}", Uuid::new_v4())).await;
     let group = group_service.create_group(owner_id, CreateGroup {
-        name: "Test Group".to_string(), description: None, avatar: None, is_public: None,
-    }).await.unwrap();
+        name: "Test Group".to_string(), description: None, avatar: None, is_public: None, member_ids: None }).await.unwrap();
     
     let agent = agent_service.create_agent(group.id, CreateAIAgent {
         name: "Bot".to_string(),
@@ -224,14 +218,14 @@ async fn test_update_personality() {
         toxicity_level: Some(8),
         enthusiasm_level: Some(3),
         expertise_domains: Some(vec!["gaming".to_string()]),
-        speech_suffix: Some("喵".to_string()),
+        speech_suffix: Some("meow".to_string()),
         trigger_keywords: None,
     }).await.unwrap();
     
     assert_eq!(updated.name, "NewBot");
     assert_eq!(updated.toxicity_level, 8);
     assert_eq!(updated.enthusiasm_level, 3);
-    assert_eq!(updated.speech_suffix, Some("喵".to_string()));
+    assert_eq!(updated.speech_suffix, Some("meow".to_string()));
     
     cleanup_group(&pool, group.id).await;
     cleanup_user(&pool, owner_id).await;
@@ -247,8 +241,7 @@ async fn test_trigger_mention() {
     
     let owner_id = create_test_user(&pool, &format!("owner_{}", Uuid::new_v4())).await;
     let group = group_service.create_group(owner_id, CreateGroup {
-        name: "Test Group".to_string(), description: None, avatar: None, is_public: None,
-    }).await.unwrap();
+        name: "Test Group".to_string(), description: None, avatar: None, is_public: None, member_ids: None }).await.unwrap();
     
     let agent = agent_service.create_agent(group.id, CreateAIAgent {
         name: "TestBot".to_string(),
@@ -274,8 +267,7 @@ async fn test_trigger_keyword() {
     
     let owner_id = create_test_user(&pool, &format!("owner_{}", Uuid::new_v4())).await;
     let group = group_service.create_group(owner_id, CreateGroup {
-        name: "Test Group".to_string(), description: None, avatar: None, is_public: None,
-    }).await.unwrap();
+        name: "Test Group".to_string(), description: None, avatar: None, is_public: None, member_ids: None }).await.unwrap();
     
     let agent = agent_service.create_agent(group.id, CreateAIAgent {
         name: "Bot".to_string(),
@@ -287,7 +279,8 @@ async fn test_trigger_keyword() {
     let decision = agent_service.evaluate_trigger(&agent, "I need help with this", "user1", None).await;
     
     assert_eq!(decision.trigger_type, TriggerType::Keyword);
-    assert!(decision.probability >= 0.6 && decision.probability <= 0.8);
+    // With keyword boost (1.2x), probability can be up to 0.96
+    assert!(decision.probability >= 0.6 && decision.probability <= 1.0);
     
     cleanup_group(&pool, group.id).await;
     cleanup_user(&pool, owner_id).await;
@@ -303,8 +296,7 @@ async fn test_get_statistics() {
     
     let owner_id = create_test_user(&pool, &format!("owner_{}", Uuid::new_v4())).await;
     let group = group_service.create_group(owner_id, CreateGroup {
-        name: "Test Group".to_string(), description: None, avatar: None, is_public: None,
-    }).await.unwrap();
+        name: "Test Group".to_string(), description: None, avatar: None, is_public: None, member_ids: None }).await.unwrap();
     
     let agent = agent_service.create_agent(group.id, CreateAIAgent {
         name: "Bot".to_string(),
@@ -332,8 +324,7 @@ async fn test_set_user_affinity() {
     let owner_id = create_test_user(&pool, &format!("owner_{}", Uuid::new_v4())).await;
     let user_id = create_test_user(&pool, &format!("user_{}", Uuid::new_v4())).await;
     let group = group_service.create_group(owner_id, CreateGroup {
-        name: "Test Group".to_string(), description: None, avatar: None, is_public: None,
-    }).await.unwrap();
+        name: "Test Group".to_string(), description: None, avatar: None, is_public: None, member_ids: None }).await.unwrap();
     
     let agent = agent_service.create_agent(group.id, CreateAIAgent {
         name: "Bot".to_string(),

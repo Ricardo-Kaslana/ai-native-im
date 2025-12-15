@@ -36,7 +36,7 @@ async fn test_generate_invite_code() {
     let owner_id = create_test_user(&pool, &format!("owner_{}", Uuid::new_v4())).await;
     
     let group = group_service.create_group(owner_id, CreateGroup {
-        name: "Test".to_string(), description: None, avatar: None, is_public: None,
+        name: "Test".to_string(), description: None, avatar: None, is_public: None, member_ids: None,
     }).await.unwrap();
     
     let result = invite_service.generate_invite_code(group.id, owner_id, None, None).await;
@@ -63,7 +63,7 @@ async fn test_join_via_invite_code() {
     let joiner_id = create_test_user(&pool, &format!("joiner_{}", Uuid::new_v4())).await;
     
     let group = group_service.create_group(owner_id, CreateGroup {
-        name: "Test".to_string(), description: None, avatar: None, is_public: None,
+        name: "Test".to_string(), description: None, avatar: None, is_public: None, member_ids: None,
     }).await.unwrap();
     
     let code = invite_service.generate_invite_code(group.id, owner_id, None, None).await.unwrap();
@@ -104,7 +104,7 @@ async fn test_join_via_code_max_uses_reached() {
     let joiner2_id = create_test_user(&pool, &format!("joiner2_{}", Uuid::new_v4())).await;
     
     let group = group_service.create_group(owner_id, CreateGroup {
-        name: "Test".to_string(), description: None, avatar: None, is_public: None,
+        name: "Test".to_string(), description: None, avatar: None, is_public: None, member_ids: None,
     }).await.unwrap();
     
     let code = invite_service.generate_invite_code(group.id, owner_id, None, Some(1)).await.unwrap();
@@ -128,7 +128,7 @@ async fn test_revoke_invite_code() {
     let owner_id = create_test_user(&pool, &format!("owner_{}", Uuid::new_v4())).await;
     
     let group = group_service.create_group(owner_id, CreateGroup {
-        name: "Test".to_string(), description: None, avatar: None, is_public: None,
+        name: "Test".to_string(), description: None, avatar: None, is_public: None, member_ids: None,
     }).await.unwrap();
     
     let code = invite_service.generate_invite_code(group.id, owner_id, None, None).await.unwrap();

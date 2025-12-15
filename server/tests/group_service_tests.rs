@@ -43,6 +43,7 @@ async fn test_create_group_success() {
         description: Some("A test group".to_string()),
         avatar: None,
         is_public: Some(false),
+        member_ids: None,
     };
     
     let result = service.create_group(owner_id, request).await;
@@ -65,7 +66,7 @@ async fn test_create_group_invalid_name_empty() {
     let service = GroupService::new(pool.clone());
     let owner_id = create_test_user(&pool, &format!("owner_{}", Uuid::new_v4())).await;
     
-    let request = CreateGroup { name: "".to_string(), description: None, avatar: None, is_public: None };
+    let request = CreateGroup { name: "".to_string(), description: None, avatar: None, is_public: None, member_ids: None };
     let result = service.create_group(owner_id, request).await;
     assert!(matches!(result, Err(GroupError::InvalidGroupName)));
     
@@ -78,7 +79,7 @@ async fn test_create_group_invalid_name_too_long() {
     let service = GroupService::new(pool.clone());
     let owner_id = create_test_user(&pool, &format!("owner_{}", Uuid::new_v4())).await;
     
-    let request = CreateGroup { name: "A".repeat(51), description: None, avatar: None, is_public: None };
+    let request = CreateGroup { name: "A".repeat(51), description: None, avatar: None, is_public: None, member_ids: None };
     let result = service.create_group(owner_id, request).await;
     assert!(matches!(result, Err(GroupError::InvalidGroupName)));
     
@@ -92,7 +93,7 @@ async fn test_update_group_settings() {
     let owner_id = create_test_user(&pool, &format!("owner_{}", Uuid::new_v4())).await;
     
     let group = service.create_group(owner_id, CreateGroup {
-        name: "Original".to_string(), description: None, avatar: None, is_public: Some(false),
+        name: "Original".to_string(), description: None, avatar: None, is_public: Some(false), member_ids: None,
     }).await.unwrap();
     
     let updates = UpdateGroupSettings {
@@ -117,7 +118,7 @@ async fn test_dissolve_group() {
     let owner_id = create_test_user(&pool, &format!("owner_{}", Uuid::new_v4())).await;
     
     let group = service.create_group(owner_id, CreateGroup {
-        name: "To Dissolve".to_string(), description: None, avatar: None, is_public: None,
+        name: "To Dissolve".to_string(), description: None, avatar: None, is_public: None, member_ids: None,
     }).await.unwrap();
     
     service.dissolve_group(group.id, owner_id).await.unwrap();
@@ -138,7 +139,7 @@ async fn test_dissolve_group_non_owner() {
     let admin_id = create_test_user(&pool, &format!("admin_{}", Uuid::new_v4())).await;
     
     let group = service.create_group(owner_id, CreateGroup {
-        name: "Test".to_string(), description: None, avatar: None, is_public: None,
+        name: "Test".to_string(), description: None, avatar: None, is_public: None, member_ids: None,
     }).await.unwrap();
     
     member_service.add_member(group.id, admin_id, owner_id).await.unwrap();
@@ -159,7 +160,7 @@ async fn test_search_groups() {
     let owner_id = create_test_user(&pool, &format!("owner_{}", Uuid::new_v4())).await;
     
     let group = service.create_group(owner_id, CreateGroup {
-        name: "Searchable XYZ123".to_string(), description: None, avatar: None, is_public: Some(true),
+        name: "Searchable XYZ123".to_string(), description: None, avatar: None, is_public: Some(true), member_ids: None,
     }).await.unwrap();
     
     let results = service.search_groups("XYZ123", 20).await.unwrap();

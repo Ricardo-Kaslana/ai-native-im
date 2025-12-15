@@ -85,18 +85,18 @@ impl Default for WebSocketConfig {
 }
 
 /// WebSocket handler for managing connections
-pub struct WebSocketHandler {
+pub struct WebSocketHandler<R: MessageRouter = MessageRouterImpl> {
     connection_manager: Arc<InMemoryConnectionManager>,
-    message_router: Arc<MessageRouterImpl>,
+    message_router: Arc<R>,
     token_service: Arc<TokenService>,
     config: WebSocketConfig,
 }
 
-impl WebSocketHandler {
+impl<R: MessageRouter> WebSocketHandler<R> {
     /// Create a new WebSocket handler
     pub fn new(
         connection_manager: Arc<InMemoryConnectionManager>,
-        message_router: Arc<MessageRouterImpl>,
+        message_router: Arc<R>,
         token_service: Arc<TokenService>,
     ) -> Self {
         Self {
@@ -110,7 +110,7 @@ impl WebSocketHandler {
     /// Create with custom configuration
     pub fn with_config(
         connection_manager: Arc<InMemoryConnectionManager>,
-        message_router: Arc<MessageRouterImpl>,
+        message_router: Arc<R>,
         token_service: Arc<TokenService>,
         config: WebSocketConfig,
     ) -> Self {
@@ -156,7 +156,9 @@ impl WebSocketHandler {
         let conn_id_clone = conn_id.clone();
         let sender_task = tokio::spawn(async move {
             while let Some(message) = rx.recv().await {
-                let json = match serde_json::to_string(&message) {
+                // Convert to WsMessage format for client compatibility
+                let ws_msg = super::models::WsMessage::from(&message);
+                let json = match serde_json::to_string(&ws_msg) {
                     Ok(j) => j,
                     Err(e) => {
                         tracing::error!("Failed to serialize message: {}", e);
@@ -215,11 +217,19 @@ impl WebSocketHandler {
                             break;
                         }
                         Some(Err(e)) => {
-                            tracing::error!(
-                                user_id = %user_id,
-                                error = %e,
-                                "WebSocket error"
-                            );
+                            // Connection reset is normal (client closed, network issue, etc.)
+                            if e.to_string().contains("Connection reset") {
+                                tracing::debug!(
+                                    user_id = %user_id,
+                                    "WebSocket connection reset (normal)"
+                                );
+                            } else {
+                                tracing::error!(
+                                    user_id = %user_id,
+                                    error = %e,
+                                    "WebSocket error"
+                                );
+                            }
                             break;
                         }
                         None => {
@@ -322,6 +332,12 @@ impl WebSocketHandler {
 
     /// Handle chat message
     async fn handle_chat_message(&self, msg: &serde_json::Value, sender_id: Uuid) -> Result<(), WebSocketError> {
+        tracing::debug!(
+            sender_id = %sender_id,
+            message = ?msg,
+            "🔵 handle_chat_message: Received WebSocket message"
+        );
+        
         // Extract message fields
         let receiver_id = msg.get("receiver_id")
             .and_then(|v| v.as_str())
@@ -343,6 +359,16 @@ impl WebSocketHandler {
         let message_id = msg.get("id")
             .and_then(|v| v.as_str())
             .and_then(|s| Uuid::parse_str(s).ok());
+        
+        tracing::debug!(
+            sender_id = %sender_id,
+            receiver_id = ?receiver_id,
+            group_id = ?group_id,
+            message_id = ?message_id,
+            content_len = content.len(),
+            msg_type = ?msg_type,
+            "📝 Parsed message fields"
+        );
 
         // Create message
         let create_msg = CreateMessage {
@@ -356,17 +382,24 @@ impl WebSocketHandler {
         };
 
         // Route message
+        tracing::debug!(
+            sender_id = %create_msg.sender_id,
+            receiver_id = ?create_msg.receiver_id,
+            group_id = ?create_msg.group_id,
+            "🚀 Calling message_router.route_message()"
+        );
+        
         match self.message_router.route_message(create_msg).await {
             Ok(ack) => {
-                tracing::debug!(
+                tracing::info!(
                     message_id = ?ack.message_id,
                     status = ?ack.status,
-                    "Message routed successfully"
+                    "✅ Message routed successfully"
                 );
                 Ok(())
             }
             Err(e) => {
-                tracing::error!(error = %e, "Failed to route message");
+                tracing::error!(error = %e, "❌ Failed to route message");
                 Err(WebSocketError::InternalError(e.to_string()))
             }
         }

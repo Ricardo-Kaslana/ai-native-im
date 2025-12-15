@@ -22,6 +22,18 @@ pub struct AIMessageRouter<R: MessageRouter> {
     max_recent_messages: usize,
 }
 
+impl<R: MessageRouter> Clone for AIMessageRouter<R> {
+    fn clone(&self) -> Self {
+        Self {
+            inner_router: self.inner_router.clone(),
+            agent_handler: self.agent_handler.clone(),
+            response_tx: self.response_tx.clone(),
+            recent_messages: self.recent_messages.clone(),
+            max_recent_messages: self.max_recent_messages,
+        }
+    }
+}
+
 impl<R: MessageRouter> AIMessageRouter<R> {
     /// Create a new AI message router
     pub fn new(inner_router: Arc<R>) -> Self {
@@ -108,16 +120,9 @@ impl<R: MessageRouter> AIMessageRouter<R> {
         };
 
         // Process through agent handler
+        // NOTE: AgentMessageHandler.process_message() already sends the response
+        // via its internal response_tx channel, so we don't need to send it again here.
         let response = handler.process_message(agent_message, &recent_messages).await?;
-
-        // If we got a response, send it through the channel
-        if let Some(ref resp) = response {
-            if let Some(tx) = &self.response_tx {
-                if let Err(e) = tx.send(resp.clone()) {
-                    error!("Failed to send AI response to channel: {}", e);
-                }
-            }
-        }
 
         Ok(response)
     }
@@ -175,11 +180,9 @@ impl<R: MessageRouter + 'static> MessageRouter for AIMessageRouter<R> {
                                     "AI Agent {} will respond to message in group {}",
                                     response.agent_name, group_id
                                 );
-                                if let Some(tx) = response_tx {
-                                    if let Err(e) = tx.send(response) {
-                                        error!("Failed to send AI response: {}", e);
-                                    }
-                                }
+                                // NOTE: Response is already sent by AgentMessageHandler.process_message()
+                                // via its internal response_tx channel. Do NOT send again here
+                                // to avoid duplicate messages.
                             }
                             Ok(None) => {
                                 debug!("AI Agent decided not to respond");

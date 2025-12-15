@@ -126,12 +126,12 @@ impl UserService {
         Ok(user)
     }
 
-    /// Get user by username
+    /// Get user by username or email
     pub async fn get_user_by_username(&self, username: &str) -> Result<User, UserError> {
         let user = sqlx::query_as::<_, User>(
             r#"
             SELECT * FROM users
-            WHERE username = $1 AND account_status != 'deleted'
+            WHERE (username = $1 OR email = $1) AND account_status != 'deleted'
             "#,
         )
         .bind(username)
@@ -571,7 +571,7 @@ impl UserServiceWithTransaction {
         let user = sqlx::query_as::<_, User>(
             r#"
             SELECT * FROM users
-            WHERE username = $1 AND account_status != 'deleted'
+            WHERE (username = $1 OR email = $1) AND account_status != 'deleted'
             "#,
         )
         .bind(username)

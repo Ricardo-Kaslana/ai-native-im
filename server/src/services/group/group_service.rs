@@ -91,6 +91,85 @@ impl GroupService {
         .execute(&mut *tx)
         .await?;
 
+        // Add initial members if provided
+        if let Some(member_ids) = request.member_ids {
+            for member_id in member_ids {
+                // Skip if member is the owner
+                if member_id == owner_id {
+                    continue;
+                }
+
+                // Add member with 'member' role
+                sqlx::query!(
+                    r#"
+                    INSERT INTO group_members (group_id, user_id, role)
+                    VALUES ($1, $2, 'member')
+                    ON CONFLICT (group_id, user_id) DO NOTHING
+                    "#,
+                    group.id,
+                    member_id
+                )
+                .execute(&mut *tx)
+                .await?;
+            }
+
+            // Update member count
+            let member_count = sqlx::query_scalar!(
+                "SELECT COUNT(*) FROM group_members WHERE group_id = $1",
+                group.id
+            )
+            .fetch_one(&mut *tx)
+            .await?
+            .unwrap_or(1);
+
+            sqlx::query!(
+                "UPDATE groups SET member_count = $1 WHERE id = $2",
+                member_count as i32,
+                group.id
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        // Create conversation for the group (for message history)
+        // Use the same ID as the group for consistency
+        sqlx::query!(
+            r#"
+            INSERT INTO conversations (id, conversation_type, name, created_by, created_at, updated_at)
+            VALUES ($1, 'group', $2, $3, $4, $4)
+            ON CONFLICT (id) DO NOTHING
+            "#,
+            group.id,
+            group.name,
+            owner_id,
+            group.created_at
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        // Add all group members as conversation participants
+        let all_member_ids = sqlx::query_scalar!(
+            "SELECT user_id FROM group_members WHERE group_id = $1",
+            group.id
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+
+        for member_id in all_member_ids {
+            sqlx::query!(
+                r#"
+                INSERT INTO conversation_participants (conversation_id, user_id, joined_at)
+                VALUES ($1, $2, $3)
+                ON CONFLICT (conversation_id, user_id) DO NOTHING
+                "#,
+                group.id,
+                member_id,
+                group.created_at
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+
         // Log audit event
         self.log_audit_event(
             &mut tx,

@@ -45,6 +45,32 @@ pub struct AIAgentSystemConfig {
     /// SiliconFlow model to use
     pub siliconflow_model: Option<String>,
 
+    // Zhipu AI (智谱 AI) configuration
+    /// Zhipu API key
+    pub zhipu_api_key: Option<String>,
+    /// Zhipu model to use (glm-4, glm-4-flash, glm-4-air)
+    pub zhipu_model: Option<String>,
+
+    // Moonshot (月之暗面 Kimi) configuration
+    /// Moonshot API key
+    pub moonshot_api_key: Option<String>,
+    /// Moonshot model to use (moonshot-v1-8k, moonshot-v1-32k, moonshot-v1-128k)
+    pub moonshot_model: Option<String>,
+
+    // Tongyi Qianwen (通义千问) configuration - Alibaba
+    /// Tongyi API key
+    pub tongyi_api_key: Option<String>,
+    /// Tongyi model to use (qwen-turbo, qwen-plus, qwen-max)
+    pub tongyi_model: Option<String>,
+
+    // Wenxin Yiyan (文心一言) configuration - Baidu
+    /// Wenxin API key
+    pub wenxin_api_key: Option<String>,
+    /// Wenxin secret key
+    pub wenxin_secret_key: Option<String>,
+    /// Wenxin model to use (ernie-speed-128k, ernie-lite-8k, ernie-4.0-8k)
+    pub wenxin_model: Option<String>,
+
     // Custom/Local LLM configuration
     /// Custom LLM API base URL (OpenAI-compatible)
     pub custom_llm_api_base: Option<String>,
@@ -98,6 +124,23 @@ impl Default for AIAgentSystemConfig {
             siliconflow_api_key: std::env::var("SILICONFLOW_API_KEY").ok(),
             siliconflow_model: std::env::var("SILICONFLOW_MODEL").ok(),
 
+            // Zhipu AI (智谱)
+            zhipu_api_key: std::env::var("ZHIPU_API_KEY").ok(),
+            zhipu_model: std::env::var("ZHIPU_MODEL").ok(),
+
+            // Moonshot (月之暗面)
+            moonshot_api_key: std::env::var("MOONSHOT_API_KEY").ok(),
+            moonshot_model: std::env::var("MOONSHOT_MODEL").ok(),
+
+            // Tongyi (通义千问)
+            tongyi_api_key: std::env::var("TONGYI_API_KEY").ok(),
+            tongyi_model: std::env::var("TONGYI_MODEL").ok(),
+
+            // Wenxin (文心一言)
+            wenxin_api_key: std::env::var("WENXIN_API_KEY").ok(),
+            wenxin_secret_key: std::env::var("WENXIN_SECRET_KEY").ok(),
+            wenxin_model: std::env::var("WENXIN_MODEL").ok(),
+
             // Custom/Local
             custom_llm_api_base: std::env::var("LLM_API_BASE").ok(),
             custom_llm_model: std::env::var("LLM_MODEL").ok(),
@@ -135,6 +178,15 @@ impl AIAgentSystemConfig {
             google_model: None,
             siliconflow_api_key: None,
             siliconflow_model: None,
+            zhipu_api_key: None,
+            zhipu_model: None,
+            moonshot_api_key: None,
+            moonshot_model: None,
+            tongyi_api_key: None,
+            tongyi_model: None,
+            wenxin_api_key: None,
+            wenxin_secret_key: None,
+            wenxin_model: None,
             custom_llm_api_base: None,
             custom_llm_model: None,
             custom_llm_api_key: None,
@@ -156,14 +208,37 @@ impl AIAgentSystemConfig {
             || self.anthropic_api_key.is_some()
             || self.google_api_key.is_some()
             || self.siliconflow_api_key.is_some()
+            || self.zhipu_api_key.is_some()
+            || self.moonshot_api_key.is_some()
+            || self.tongyi_api_key.is_some()
+            || self.wenxin_api_key.is_some()
             || self.custom_llm_api_base.is_some()
     }
 
     /// Get the configured LLM provider
+    /// Priority: Domestic providers first (SiliconFlow > Zhipu > Moonshot > Tongyi > Wenxin),
+    /// then international (OpenAI > Anthropic > Google), then custom
     pub fn llm_provider(&self) -> Option<LLMProvider> {
         if self.mock_mode {
             return Some(LLMProvider::Custom);
         }
+        // Domestic providers first (国内服务商优先)
+        if self.siliconflow_api_key.is_some() {
+            return Some(LLMProvider::SiliconFlow);
+        }
+        if self.zhipu_api_key.is_some() {
+            return Some(LLMProvider::Zhipu);
+        }
+        if self.moonshot_api_key.is_some() {
+            return Some(LLMProvider::Moonshot);
+        }
+        if self.tongyi_api_key.is_some() {
+            return Some(LLMProvider::Tongyi);
+        }
+        if self.wenxin_api_key.is_some() {
+            return Some(LLMProvider::Wenxin);
+        }
+        // International providers
         if self.openai_api_key.is_some() {
             return Some(LLMProvider::OpenAI);
         }
@@ -172,9 +247,6 @@ impl AIAgentSystemConfig {
         }
         if self.google_api_key.is_some() {
             return Some(LLMProvider::Google);
-        }
-        if self.siliconflow_api_key.is_some() {
-            return Some(LLMProvider::SiliconFlow);
         }
         if self.custom_llm_api_base.is_some() {
             return Some(LLMProvider::Custom);
@@ -349,9 +421,77 @@ impl AIAgentSystem {
     }
 
     /// Create LLM client based on configuration
-    /// Priority: OpenAI > Anthropic > Google > SiliconFlow > Custom
+    /// Priority: Domestic providers first (SiliconFlow > Zhipu > Moonshot > Tongyi > Wenxin),
+    /// then international (OpenAI > Anthropic > Google), then custom
     fn create_llm_client(config: &AIAgentSystemConfig) -> Option<Arc<dyn LLMClient>> {
-        // Try OpenAI first
+        // ============== Domestic Providers (国内服务商优先) ==============
+
+        // Try SiliconFlow (硅基流动) - highest priority domestic
+        if let Some(ref api_key) = config.siliconflow_api_key {
+            info!("  Configuring SiliconFlow LLM client (国内优先)");
+            if let Some(ref model) = config.siliconflow_model {
+                info!("    Model: {}", model);
+            }
+            return Some(LLMClientFactory::siliconflow(
+                api_key.clone(),
+                config.siliconflow_model.clone(),
+            ));
+        }
+
+        // Try Zhipu AI (智谱 AI)
+        if let Some(ref api_key) = config.zhipu_api_key {
+            info!("  Configuring Zhipu AI (智谱) LLM client");
+            if let Some(ref model) = config.zhipu_model {
+                info!("    Model: {}", model);
+            }
+            return Some(LLMClientFactory::zhipu(
+                api_key.clone(),
+                config.zhipu_model.clone(),
+            ));
+        }
+
+        // Try Moonshot (月之暗面 Kimi)
+        if let Some(ref api_key) = config.moonshot_api_key {
+            info!("  Configuring Moonshot (月之暗面) LLM client");
+            if let Some(ref model) = config.moonshot_model {
+                info!("    Model: {}", model);
+            }
+            return Some(LLMClientFactory::moonshot(
+                api_key.clone(),
+                config.moonshot_model.clone(),
+            ));
+        }
+
+        // Try Tongyi Qianwen (通义千问) - Alibaba
+        if let Some(ref api_key) = config.tongyi_api_key {
+            info!("  Configuring Tongyi Qianwen (通义千问) LLM client");
+            if let Some(ref model) = config.tongyi_model {
+                info!("    Model: {}", model);
+            }
+            return Some(LLMClientFactory::tongyi(
+                api_key.clone(),
+                config.tongyi_model.clone(),
+            ));
+        }
+
+        // Try Wenxin Yiyan (文心一言) - Baidu
+        if let (Some(ref api_key), Some(ref secret_key)) =
+            (&config.wenxin_api_key, &config.wenxin_secret_key)
+        {
+            info!("  Configuring Wenxin Yiyan (文心一言) LLM client");
+            if let Some(ref model) = config.wenxin_model {
+                info!("    Model: {}", model);
+            }
+            return Some(LLMClientFactory::wenxin(
+                api_key.clone(),
+                secret_key.clone(),
+                config.wenxin_model.clone(),
+            ));
+        }
+
+        // ============== International Providers (国际服务商) ==============
+
+        // Try OpenAI
         if let Some(ref api_key) = config.openai_api_key {
             info!("  Configuring OpenAI LLM client");
             if let Some(ref model) = config.openai_model {
@@ -394,17 +534,7 @@ impl AIAgentSystem {
             ));
         }
 
-        // Try SiliconFlow (硅基流动)
-        if let Some(ref api_key) = config.siliconflow_api_key {
-            info!("  Configuring SiliconFlow LLM client");
-            if let Some(ref model) = config.siliconflow_model {
-                info!("    Model: {}", model);
-            }
-            return Some(LLMClientFactory::siliconflow(
-                api_key.clone(),
-                config.siliconflow_model.clone(),
-            ));
-        }
+        // ============== Custom/Local LLM ==============
 
         // Try custom/local LLM
         if let Some(ref api_base) = config.custom_llm_api_base {
@@ -556,12 +686,65 @@ mod tests {
     fn test_config_llm_priority() {
         let mut config = AIAgentSystemConfig::mock();
         config.mock_mode = false;
+        config.siliconflow_api_key = Some("siliconflow-key".to_string());
         config.openai_api_key = Some("openai-key".to_string());
         config.anthropic_api_key = Some("anthropic-key".to_string());
         config.google_api_key = Some("google-key".to_string());
 
-        // OpenAI should have highest priority
-        assert_eq!(config.llm_provider(), Some(LLMProvider::OpenAI));
+        // SiliconFlow (domestic) should have highest priority
+        assert_eq!(config.llm_provider(), Some(LLMProvider::SiliconFlow));
+    }
+
+    #[test]
+    fn test_config_domestic_priority() {
+        let mut config = AIAgentSystemConfig::mock();
+        config.mock_mode = false;
+        config.zhipu_api_key = Some("zhipu-key".to_string());
+        config.openai_api_key = Some("openai-key".to_string());
+
+        // Zhipu (domestic) should have priority over OpenAI
+        assert_eq!(config.llm_provider(), Some(LLMProvider::Zhipu));
+    }
+
+    #[test]
+    fn test_config_has_llm_zhipu() {
+        let mut config = AIAgentSystemConfig::mock();
+        config.mock_mode = false;
+        config.zhipu_api_key = Some("test-key".to_string());
+
+        assert!(config.has_llm());
+        assert_eq!(config.llm_provider(), Some(LLMProvider::Zhipu));
+    }
+
+    #[test]
+    fn test_config_has_llm_moonshot() {
+        let mut config = AIAgentSystemConfig::mock();
+        config.mock_mode = false;
+        config.moonshot_api_key = Some("test-key".to_string());
+
+        assert!(config.has_llm());
+        assert_eq!(config.llm_provider(), Some(LLMProvider::Moonshot));
+    }
+
+    #[test]
+    fn test_config_has_llm_tongyi() {
+        let mut config = AIAgentSystemConfig::mock();
+        config.mock_mode = false;
+        config.tongyi_api_key = Some("test-key".to_string());
+
+        assert!(config.has_llm());
+        assert_eq!(config.llm_provider(), Some(LLMProvider::Tongyi));
+    }
+
+    #[test]
+    fn test_config_has_llm_wenxin() {
+        let mut config = AIAgentSystemConfig::mock();
+        config.mock_mode = false;
+        config.wenxin_api_key = Some("api-key".to_string());
+        config.wenxin_secret_key = Some("secret-key".to_string());
+
+        assert!(config.has_llm());
+        assert_eq!(config.llm_provider(), Some(LLMProvider::Wenxin));
     }
 
     #[test]

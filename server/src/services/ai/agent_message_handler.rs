@@ -8,6 +8,8 @@ use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use super::{AIAgentError, AIAgentService};
+use super::cot::CoTConfig;
+use super::intent::{IntentClassifier, IntentResult, ResponsePriority};
 
 /// Message for AI Agent processing
 #[derive(Debug, Clone)]
@@ -29,6 +31,8 @@ pub struct AgentResponse {
     pub content: String,
     pub reply_to_message_id: Uuid,
     pub typing_delay_ms: u64,
+    /// Detected user intent (if classified)
+    pub intent: Option<IntentResult>,
 }
 
 /// Callback for sending agent responses
@@ -40,6 +44,10 @@ pub type ResponseCallback = Arc<dyn Fn(AgentResponse) + Send + Sync>;
 pub struct AgentMessageHandler {
     agent_service: AIAgentService,
     response_tx: Option<mpsc::UnboundedSender<AgentResponse>>,
+    /// Chain of Thought configuration
+    cot_config: Option<CoTConfig>,
+    /// Intent classifier
+    intent_classifier: IntentClassifier,
 }
 
 impl AgentMessageHandler {
@@ -48,12 +56,26 @@ impl AgentMessageHandler {
         Self {
             agent_service,
             response_tx: None,
+            cot_config: Some(CoTConfig::default()), // CoT enabled by default
+            intent_classifier: IntentClassifier::new(),
         }
     }
 
     /// Set the response channel
     pub fn with_response_channel(mut self, tx: mpsc::UnboundedSender<AgentResponse>) -> Self {
         self.response_tx = Some(tx);
+        self
+    }
+
+    /// Set CoT configuration
+    pub fn with_cot_config(mut self, config: CoTConfig) -> Self {
+        self.cot_config = Some(config);
+        self
+    }
+
+    /// Disable CoT
+    pub fn without_cot(mut self) -> Self {
+        self.cot_config = None;
         self
     }
 
@@ -65,6 +87,11 @@ impl AgentMessageHandler {
         message: AgentMessage,
         recent_messages: &[String],
     ) -> Result<Option<AgentResponse>, AIAgentError> {
+        info!(
+            "🔍 AgentMessageHandler.process_message called for message_id: {}",
+            message.message_id
+        );
+        
         // Get agent for this group
         let agent = match self.agent_service.get_agent_for_group(message.group_id).await? {
             Some(agent) if agent.is_active => agent,
@@ -116,10 +143,33 @@ impl AgentMessageHandler {
             agent.name, decision.trigger_type, decision.probability
         );
 
-        // Generate response
+        // Classify user intent
+        let intent_result = self.intent_classifier.classify(&message.content);
+        debug!(
+            "Intent classified: {:?} (confidence: {:.0}%)",
+            intent_result.primary_intent,
+            intent_result.confidence * 100.0
+        );
+
+        // Adjust response priority based on intent
+        let should_prioritize = matches!(
+            intent_result.strategy.priority,
+            ResponsePriority::High
+        );
+        if should_prioritize {
+            debug!("High priority intent detected, processing urgently");
+        }
+
+        // Generate response with CoT
         let response_content = self
             .agent_service
-            .generate_response(&agent, &message.content, recent_messages, &historical_context)
+            .generate_response_with_cot(
+                &agent, 
+                &message.content, 
+                recent_messages, 
+                &historical_context,
+                self.cot_config.as_ref(),
+            )
             .await?;
 
         // Calculate typing delay
@@ -132,10 +182,15 @@ impl AgentMessageHandler {
             content: response_content,
             reply_to_message_id: message.message_id,
             typing_delay_ms: typing_delay.as_millis() as u64,
+            intent: Some(intent_result),
         };
 
         // Send response through channel if available
         if let Some(tx) = &self.response_tx {
+            info!(
+                "📤 Sending response to channel for message_id: {}, reply_to: {}",
+                message.message_id, response.reply_to_message_id
+            );
             if let Err(e) = tx.send(response.clone()) {
                 error!("Failed to send agent response: {}", e);
             }
@@ -164,6 +219,8 @@ impl AgentMessageHandler {
 pub struct AgentResponseWorker {
     response_rx: mpsc::UnboundedReceiver<AgentResponse>,
     message_sender: Arc<dyn AgentMessageSender>,
+    /// Track recently processed message IDs to prevent duplicates
+    processed_messages: std::collections::HashSet<Uuid>,
 }
 
 /// Trait for sending agent messages back to the chat
@@ -188,6 +245,7 @@ impl AgentResponseWorker {
         Self {
             response_rx,
             message_sender,
+            processed_messages: std::collections::HashSet::new(),
         }
     }
 
@@ -196,6 +254,32 @@ impl AgentResponseWorker {
         info!("Agent response worker started");
 
         while let Some(response) = self.response_rx.recv().await {
+            info!(
+                "📥 AgentResponseWorker received response for reply_to: {}",
+                response.reply_to_message_id
+            );
+            
+            // Check for duplicate response (same reply_to_message_id means same trigger)
+            if self.processed_messages.contains(&response.reply_to_message_id) {
+                info!(
+                    "⏭️ Skipping duplicate response for message {}",
+                    response.reply_to_message_id
+                );
+                continue;
+            }
+            
+            // Mark as processed
+            self.processed_messages.insert(response.reply_to_message_id);
+            info!(
+                "✅ Processing response for reply_to: {}, total processed: {}",
+                response.reply_to_message_id, self.processed_messages.len()
+            );
+            
+            // Clean up old entries if too many (keep last 1000)
+            if self.processed_messages.len() > 1000 {
+                self.processed_messages.clear();
+            }
+
             // Simulate typing delay
             if response.typing_delay_ms > 0 {
                 debug!(
@@ -220,8 +304,8 @@ impl AgentResponseWorker {
             {
                 Ok(message_id) => {
                     info!(
-                        "Agent {} sent message {} to group {}",
-                        response.agent_name, message_id, response.group_id
+                        "Agent {} sent message {} to group {} (reply_to: {})",
+                        response.agent_name, message_id, response.group_id, response.reply_to_message_id
                     );
                 }
                 Err(e) => {
@@ -292,6 +376,7 @@ mod tests {
             content: "Hello!".to_string(),
             reply_to_message_id: Uuid::new_v4(),
             typing_delay_ms: 10, // Short delay for test
+            intent: None,
         })
         .unwrap();
 

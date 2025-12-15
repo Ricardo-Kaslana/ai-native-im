@@ -37,7 +37,7 @@ async fn test_add_member_success() {
     let member_id = create_test_user(&pool, &format!("member_{}", Uuid::new_v4())).await;
     
     let group = group_service.create_group(owner_id, CreateGroup {
-        name: "Test".to_string(), description: None, avatar: None, is_public: None,
+        name: "Test".to_string(), description: None, avatar: None, is_public: None, member_ids: None,
     }).await.unwrap();
     
     let result = member_service.add_member(group.id, member_id, owner_id).await;
@@ -65,7 +65,7 @@ async fn test_add_member_already_member() {
     let member_id = create_test_user(&pool, &format!("member_{}", Uuid::new_v4())).await;
     
     let group = group_service.create_group(owner_id, CreateGroup {
-        name: "Test".to_string(), description: None, avatar: None, is_public: None,
+        name: "Test".to_string(), description: None, avatar: None, is_public: None, member_ids: None,
     }).await.unwrap();
     
     member_service.add_member(group.id, member_id, owner_id).await.unwrap();
@@ -87,7 +87,7 @@ async fn test_remove_member_success() {
     let member_id = create_test_user(&pool, &format!("member_{}", Uuid::new_v4())).await;
     
     let group = group_service.create_group(owner_id, CreateGroup {
-        name: "Test".to_string(), description: None, avatar: None, is_public: None,
+        name: "Test".to_string(), description: None, avatar: None, is_public: None, member_ids: None,
     }).await.unwrap();
     
     member_service.add_member(group.id, member_id, owner_id).await.unwrap();
@@ -111,7 +111,7 @@ async fn test_admin_cannot_kick_owner() {
     let admin_id = create_test_user(&pool, &format!("admin_{}", Uuid::new_v4())).await;
     
     let group = group_service.create_group(owner_id, CreateGroup {
-        name: "Test".to_string(), description: None, avatar: None, is_public: None,
+        name: "Test".to_string(), description: None, avatar: None, is_public: None, member_ids: None,
     }).await.unwrap();
     
     member_service.add_member(group.id, admin_id, owner_id).await.unwrap();
@@ -135,7 +135,7 @@ async fn test_promote_to_admin() {
     let member_id = create_test_user(&pool, &format!("member_{}", Uuid::new_v4())).await;
     
     let group = group_service.create_group(owner_id, CreateGroup {
-        name: "Test".to_string(), description: None, avatar: None, is_public: None,
+        name: "Test".to_string(), description: None, avatar: None, is_public: None, member_ids: None,
     }).await.unwrap();
     
     member_service.add_member(group.id, member_id, owner_id).await.unwrap();
@@ -158,7 +158,7 @@ async fn test_mute_member() {
     let member_id = create_test_user(&pool, &format!("member_{}", Uuid::new_v4())).await;
     
     let group = group_service.create_group(owner_id, CreateGroup {
-        name: "Test".to_string(), description: None, avatar: None, is_public: None,
+        name: "Test".to_string(), description: None, avatar: None, is_public: None, member_ids: None,
     }).await.unwrap();
     
     member_service.add_member(group.id, member_id, owner_id).await.unwrap();
@@ -181,7 +181,7 @@ async fn test_ban_member() {
     let member_id = create_test_user(&pool, &format!("member_{}", Uuid::new_v4())).await;
     
     let group = group_service.create_group(owner_id, CreateGroup {
-        name: "Test".to_string(), description: None, avatar: None, is_public: None,
+        name: "Test".to_string(), description: None, avatar: None, is_public: None, member_ids: None,
     }).await.unwrap();
     
     member_service.add_member(group.id, member_id, owner_id).await.unwrap();
@@ -205,7 +205,7 @@ async fn test_banned_user_cannot_rejoin() {
     let member_id = create_test_user(&pool, &format!("member_{}", Uuid::new_v4())).await;
     
     let group = group_service.create_group(owner_id, CreateGroup {
-        name: "Test".to_string(), description: None, avatar: None, is_public: None,
+        name: "Test".to_string(), description: None, avatar: None, is_public: None, member_ids: None,
     }).await.unwrap();
     
     member_service.add_member(group.id, member_id, owner_id).await.unwrap();
@@ -230,7 +230,7 @@ async fn test_get_group_members() {
     let member_id = create_test_user(&pool, &format!("member_{}", Uuid::new_v4())).await;
     
     let group = group_service.create_group(owner_id, CreateGroup {
-        name: "Test".to_string(), description: None, avatar: None, is_public: None,
+        name: "Test".to_string(), description: None, avatar: None, is_public: None, member_ids: None,
     }).await.unwrap();
     
     member_service.add_member(group.id, admin_id, owner_id).await.unwrap();

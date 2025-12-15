@@ -51,6 +51,7 @@ pub struct MessageRouterImpl {
     dedup_cache: Arc<InMemoryDedupCache>,
     persister: Arc<dyn MessagePersister>,
     redis_client: Option<Arc<redis::aio::ConnectionManager>>,
+    pool: Option<sqlx::PgPool>,
 }
 
 impl MessageRouterImpl {
@@ -65,7 +66,14 @@ impl MessageRouterImpl {
             dedup_cache,
             persister,
             redis_client: None,
+            pool: None,
         }
+    }
+
+    /// Create with database pool for group member queries
+    pub fn with_pool(mut self, pool: sqlx::PgPool) -> Self {
+        self.pool = Some(pool);
+        self
     }
 
     /// Create with Redis support for cross-instance routing
@@ -80,6 +88,28 @@ impl MessageRouterImpl {
             dedup_cache,
             persister,
             redis_client: Some(redis_client),
+            pool: None,
+        }
+    }
+    
+    /// Get all member IDs for a group
+    async fn get_group_members(&self, group_id: &Uuid) -> Vec<Uuid> {
+        if let Some(ref pool) = self.pool {
+            match sqlx::query_scalar!(
+                r#"SELECT user_id FROM group_members WHERE group_id = $1"#,
+                group_id
+            )
+            .fetch_all(pool)
+            .await
+            {
+                Ok(members) => members,
+                Err(e) => {
+                    tracing::warn!("Failed to get group members: {}", e);
+                    vec![]
+                }
+            }
+        } else {
+            vec![]
         }
     }
 
@@ -142,6 +172,15 @@ impl MessageRouter for MessageRouterImpl {
         let receiver_id = create.receiver_id;
         let group_id = create.group_id;
         
+        tracing::debug!(
+            message_id = %message_id,
+            sender_id = %sender_id,
+            receiver_id = ?receiver_id,
+            group_id = ?group_id,
+            content_len = create.content.len(),
+            "🔵 route_message: Starting message routing"
+        );
+        
         // Validate message
         if let Err(e) = MessageValidator::validate(&create) {
             tracing::error!(
@@ -150,10 +189,12 @@ impl MessageRouter for MessageRouterImpl {
                 sender_id = %sender_id,
                 receiver_id = ?receiver_id,
                 group_id = ?group_id,
-                "Message validation failed"
+                "❌ Message validation failed"
             );
             return Err(e.into());
         }
+
+        tracing::debug!(message_id = %message_id, "✅ Message validation passed");
 
         // Create message with ID
         let message = self.create_to_message(&create);
@@ -168,6 +209,11 @@ impl MessageRouter for MessageRouterImpl {
         }
 
         // Persist message (async, but we wait for it before acking)
+        tracing::debug!(
+            message_id = %message.id,
+            "🔵 Attempting to persist message to database"
+        );
+        
         if let Err(e) = self.persister.persist_message(&message).await {
             tracing::error!(
                 error = %e,
@@ -175,10 +221,18 @@ impl MessageRouter for MessageRouterImpl {
                 sender_id = %message.sender_id,
                 receiver_id = ?message.receiver_id,
                 group_id = ?message.group_id,
-                "Message persistence failed"
+                "❌ Message persistence failed"
             );
             return Err(e.into());
         }
+        
+        tracing::info!(
+            message_id = %message.id,
+            sender_id = %message.sender_id,
+            receiver_id = ?message.receiver_id,
+            group_id = ?message.group_id,
+            "✅ Message persisted to database successfully"
+        );
 
         // Route based on message type
         if let Some(receiver_id) = &message.receiver_id {
@@ -237,13 +291,37 @@ impl MessageRouter for MessageRouterImpl {
     }
 
     async fn route_to_group(&self, group_id: &Uuid, message: &Message) -> Result<u32, RouterError> {
-        // Publish to group channel for all instances
+        // Publish to group channel for all instances (Redis pub/sub)
         let channel = format!("group:{}", group_id);
         self.publish_to_redis(&channel, message).await?;
 
-        // TODO: Get group members and deliver locally
-        // For now, just return 0 as we need group service integration
-        Ok(0)
+        // Get all group members and deliver to online ones
+        let members = self.get_group_members(group_id).await;
+        let mut delivered_count = 0u32;
+        
+        for member_id in &members {
+            if self.deliver_locally(member_id, message).await {
+                delivered_count += 1;
+            }
+        }
+        
+        // If no members found (no database pool), at least deliver to sender
+        if members.is_empty() {
+            if self.deliver_locally(&message.sender_id, message).await {
+                delivered_count = 1;
+            }
+        }
+
+        tracing::debug!(
+            group_id = %group_id,
+            message_id = %message.id,
+            sender_id = %message.sender_id,
+            member_count = members.len(),
+            delivered_count = delivered_count,
+            "Group message delivered to members"
+        );
+
+        Ok(delivered_count)
     }
 }
 

@@ -95,9 +95,9 @@ impl AIAgentService {
         let enthusiasm = request.enthusiasm_level.unwrap_or(5);
         Self::validate_levels(toxicity, enthusiasm)?;
 
-        // Check if group already has an agent
+        // Check if group already has an active agent
         let existing = sqlx::query_scalar!(
-            r#"SELECT EXISTS(SELECT 1 FROM ai_agents WHERE group_id = $1) as "exists!""#,
+            r#"SELECT EXISTS(SELECT 1 FROM ai_agents WHERE group_id = $1 AND is_active = TRUE) as "exists!""#,
             group_id
         )
         .fetch_one(&self.pool)
@@ -107,21 +107,20 @@ impl AIAgentService {
             return Err(AIAgentError::AgentAlreadyExists);
         }
 
-        let agent = sqlx::query_as!(
-            AIAgent,
+        let agent = sqlx::query_as::<_, AIAgent>(
             r#"
             INSERT INTO ai_agents (group_id, name, toxicity_level, enthusiasm_level, expertise_domains, speech_suffix, trigger_keywords)
             VALUES ($1, $2, $3, $4, $5, $6, $7)
-            RETURNING id, group_id, name, toxicity_level, enthusiasm_level, expertise_domains, speech_suffix, trigger_keywords, is_active, created_at, updated_at
-            "#,
-            group_id,
-            request.name,
-            toxicity,
-            enthusiasm,
-            &request.expertise_domains.unwrap_or_default(),
-            request.speech_suffix,
-            &request.trigger_keywords.unwrap_or_default()
+            RETURNING *
+            "#
         )
+        .bind(group_id)
+        .bind(&request.name)
+        .bind(toxicity)
+        .bind(enthusiasm)
+        .bind(&request.expertise_domains.clone().unwrap_or_default())
+        .bind(&request.speech_suffix)
+        .bind(&request.trigger_keywords.clone().unwrap_or_default())
         .fetch_one(&self.pool)
         .await?;
 
@@ -139,14 +138,12 @@ impl AIAgentService {
 
     /// Get AI Agent by ID
     pub async fn get_agent(&self, agent_id: Uuid) -> Result<AIAgent, AIAgentError> {
-        sqlx::query_as!(
-            AIAgent,
+        sqlx::query_as::<_, AIAgent>(
             r#"
-            SELECT id, group_id, name, toxicity_level, enthusiasm_level, expertise_domains, speech_suffix, trigger_keywords, is_active, created_at, updated_at
-            FROM ai_agents WHERE id = $1
-            "#,
-            agent_id
+            SELECT * FROM ai_agents WHERE id = $1
+            "#
         )
+        .bind(agent_id)
         .fetch_optional(&self.pool)
         .await?
         .ok_or(AIAgentError::AgentNotFound(agent_id))
@@ -154,14 +151,12 @@ impl AIAgentService {
 
     /// Get AI Agent for a group
     pub async fn get_agent_for_group(&self, group_id: Uuid) -> Result<Option<AIAgent>, AIAgentError> {
-        let agent = sqlx::query_as!(
-            AIAgent,
+        let agent = sqlx::query_as::<_, AIAgent>(
             r#"
-            SELECT id, group_id, name, toxicity_level, enthusiasm_level, expertise_domains, speech_suffix, trigger_keywords, is_active, created_at, updated_at
-            FROM ai_agents WHERE group_id = $1 AND is_active = TRUE
-            "#,
-            group_id
+            SELECT * FROM ai_agents WHERE group_id = $1 AND is_active = TRUE
+            "#
         )
+        .bind(group_id)
         .fetch_optional(&self.pool)
         .await?;
 
@@ -189,9 +184,47 @@ impl AIAgentService {
                 return Err(AIAgentError::InvalidEnthusiasmLevel);
             }
         }
+        
+        // Validate custom fields
+        if let Some(ref backstory) = updates.backstory {
+            if backstory.len() > 2000 {
+                return Err(AIAgentError::InvalidPersona("Backstory exceeds 2000 characters".to_string()));
+            }
+        }
+        if let Some(ref custom_prompt) = updates.custom_prompt {
+            if custom_prompt.len() > 5000 {
+                return Err(AIAgentError::InvalidPersona("Custom prompt exceeds 5000 characters".to_string()));
+            }
+        }
+        if let Some(ref greeting) = updates.greeting_message {
+            if greeting.len() > 500 {
+                return Err(AIAgentError::InvalidPersona("Greeting message exceeds 500 characters".to_string()));
+            }
+        }
+        if let Some(ref farewell) = updates.farewell_message {
+            if farewell.len() > 500 {
+                return Err(AIAgentError::InvalidPersona("Farewell message exceeds 500 characters".to_string()));
+            }
+        }
 
-        let agent = sqlx::query_as!(
-            AIAgent,
+        // Convert JSONB fields to JSON values
+        let voice_settings_json = updates.voice_settings
+            .map(|v| serde_json::to_value(v).ok())
+            .flatten();
+        let emotion_boundaries_json = updates.emotion_boundaries
+            .map(|v| serde_json::to_value(v).ok())
+            .flatten();
+        let sticker_preferences_json = updates.sticker_preferences
+            .map(|v| serde_json::to_value(v).ok())
+            .flatten();
+        let response_style_json = updates.response_style
+            .map(|v| serde_json::to_value(v).ok())
+            .flatten();
+        let proactive_config_json = updates.proactive_config
+            .map(|v| serde_json::to_value(v).ok())
+            .flatten();
+
+        let agent = sqlx::query_as::<_, AIAgent>(
             r#"
             UPDATE ai_agents
             SET name = COALESCE($2, name),
@@ -200,18 +233,40 @@ impl AIAgentService {
                 expertise_domains = COALESCE($5, expertise_domains),
                 speech_suffix = COALESCE($6, speech_suffix),
                 trigger_keywords = COALESCE($7, trigger_keywords),
+                voice_settings = COALESCE($8, voice_settings),
+                emotion_boundaries = COALESCE($9, emotion_boundaries),
+                sticker_preferences = COALESCE($10, sticker_preferences),
+                response_style = COALESCE($11, response_style),
+                proactive_config = COALESCE($12, proactive_config),
+                custom_prompt = COALESCE($13, custom_prompt),
+                backstory = COALESCE($14, backstory),
+                avatar_url = COALESCE($15, avatar_url),
+                greeting_message = COALESCE($16, greeting_message),
+                farewell_message = COALESCE($17, farewell_message),
+                persona_preset = COALESCE($18, persona_preset),
                 updated_at = NOW()
             WHERE id = $1
-            RETURNING id, group_id, name, toxicity_level, enthusiasm_level, expertise_domains, speech_suffix, trigger_keywords, is_active, created_at, updated_at
-            "#,
-            agent_id,
-            updates.name,
-            updates.toxicity_level,
-            updates.enthusiasm_level,
-            updates.expertise_domains.as_deref(),
-            updates.speech_suffix,
-            updates.trigger_keywords.as_deref()
+            RETURNING *
+            "#
         )
+        .bind(agent_id)
+        .bind(&updates.name)
+        .bind(updates.toxicity_level)
+        .bind(updates.enthusiasm_level)
+        .bind(updates.expertise_domains.as_deref())
+        .bind(&updates.speech_suffix)
+        .bind(updates.trigger_keywords.as_deref())
+        .bind(voice_settings_json)
+        .bind(emotion_boundaries_json)
+        .bind(sticker_preferences_json)
+        .bind(response_style_json)
+        .bind(proactive_config_json)
+        .bind(&updates.custom_prompt)
+        .bind(&updates.backstory)
+        .bind(&updates.avatar_url)
+        .bind(&updates.greeting_message)
+        .bind(&updates.farewell_message)
+        .bind(&updates.preset)
         .fetch_optional(&self.pool)
         .await?
         .ok_or(AIAgentError::AgentNotFound(agent_id))?;
@@ -245,10 +300,23 @@ impl AIAgentService {
         sender_id: &str,
         last_message_time: Option<chrono::DateTime<Utc>>,
     ) -> TriggerDecision {
+        self.evaluate_trigger_with_reply(agent, message_content, sender_id, last_message_time, false).await
+    }
+
+    /// Evaluate if agent should respond to a message (with reply context)
+    pub async fn evaluate_trigger_with_reply(
+        &self,
+        agent: &AIAgent,
+        message_content: &str,
+        sender_id: &str,
+        last_message_time: Option<chrono::DateTime<Utc>>,
+        is_reply_to_agent: bool,
+    ) -> TriggerDecision {
         let context = GroupContext {
             group_id: agent.group_id,
             last_message_time,
             agent: agent.clone(),
+            is_reply_to_agent,
         };
 
         self.trigger_evaluator
@@ -282,13 +350,25 @@ impl AIAgentService {
         Ok(())
     }
 
-    /// Generate AI response
+    /// Generate AI response with optional Chain of Thought
     pub async fn generate_response(
         &self,
         agent: &AIAgent,
         message_content: &str,
         recent_messages: &[String],
         historical_context: &[HistoricalMessage],
+    ) -> Result<String, AIAgentError> {
+        self.generate_response_with_cot(agent, message_content, recent_messages, historical_context, None).await
+    }
+
+    /// Generate AI response with Chain of Thought support
+    pub async fn generate_response_with_cot(
+        &self,
+        agent: &AIAgent,
+        message_content: &str,
+        recent_messages: &[String],
+        historical_context: &[HistoricalMessage],
+        cot_config: Option<&super::cot::CoTConfig>,
     ) -> Result<String, AIAgentError> {
         let llm_client = self
             .llm_client
@@ -298,19 +378,37 @@ impl AIAgentService {
         // Load personality config
         let personality = load_personality_config(&self.pool, agent).await?;
 
-        // Generate system prompt
-        let system_prompt = self.personality_manager.generate_system_prompt(
+        // Generate system prompt with optional CoT
+        let system_prompt = self.personality_manager.generate_system_prompt_with_cot(
             &personality,
             recent_messages,
             historical_context,
+            cot_config,
         );
 
-        debug!("Generating response for agent {}", agent.id);
+        debug!("Generating response for agent {} (CoT: {})", agent.id, cot_config.map(|c| c.enabled).unwrap_or(false));
 
         // Call LLM
-        let response = llm_client
+        let raw_response = llm_client
             .generate_response(&system_prompt, message_content)
             .await?;
+
+        // Process CoT if enabled - extract only the response part
+        let response = if let Some(cfg) = cot_config {
+            if cfg.enabled {
+                let processor = super::cot::CoTProcessor::with_config(cfg.clone());
+                let result = processor.parse_response(&raw_response);
+                debug!("CoT thinking length: {}, confidence: {:.2}", 
+                    result.thinking.len(), 
+                    result.understanding_confidence
+                );
+                result.response
+            } else {
+                raw_response
+            }
+        } else {
+            raw_response
+        };
 
         // Apply speech suffix if configured
         let response = if let Some(ref suffix) = agent.speech_suffix {

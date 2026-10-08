@@ -1,56 +1,90 @@
-# Rust
-/server/target/
-**/*.rs.bk
+# ==============================================================================
+# AI-Native IM — 仓库根级忽略规则
+#
+# 子项目另有独立规则：
+#   - server/.gitignore  （Rust：/target）
+#   - client/.gitignore  （Flutter 官方模板）
+# 本文件只负责跨子项目、根目录级别的规则。
+#
+# 原则：构建产物、密钥、运行时数据、本地工具二进制，一律不入库。
+# ==============================================================================
 
-# Flutter
-/client/.dart_tool/
-/client/.flutter-plugins
-/client/.flutter-plugins-dependencies
-/client/.packages
-/client/build/
-/client/.metadata
-
-# Environment
+# ---------------------------------------------------------------- 密钥 / 环境变量
+# server/.env 内含 JWT_SECRET 与 LLM API Key，绝不允许提交
 .env
+.env.local
+.env.*.local
 *.env
 !.env.example
-!server/.env.example
+!*.env.example
+*.pem
+*.key
+*.p12
+*.jks
 
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
+# ---------------------------------------------------------------- Rust 服务端
+/server/target/
+**/*.rs.bk
+*.pdb
 
-# OS
-.DS_Store
-Thumbs.db
+# ---------------------------------------------------------------- Flutter 客户端
+/client/build/
+/client/.dart_tool/
+/client/.packages
+/client/.flutter-plugins
+/client/.flutter-plugins-dependencies
+/client/.pub/
+/client/.pub-cache/
+/client/coverage/
+**/doc/api/
 
-# Docker
-docker-compose.override.yml
+# 历史遗留的客户端备份副本（与 client/lib 重复，应由版本控制取代）
+/client/lib-bak/
 
-# Logs
-*.log
-
-# Database
+# ---------------------------------------------------------------- 运行时数据
+# 用户上传的媒体文件、Qdrant 快照等，属于数据而非代码
+/server/storage/
+/server/snapshots/
+.qdrant-initialized
 *.db
 *.sqlite
 *.sqlite3
 dump.rdb
 
-# Qdrant data
-.qdrant-initialized
-/storage/
-/snapshots/
+# ---------------------------------------------------------------- 本地工具二进制
+# protoc.exe 约 12MB。请从 https://github.com/protocolbuffers/protobuf/releases
+# 下载对应版本，解压后放置于项目根目录或 server/ 下。
+/protoc.exe
+/server/protoc.exe
 
-# Generated files
-/server/src/proto/*.rs
-/client/lib/shared/proto/*.dart
+# ---------------------------------------------------------------- IDE / 编辑器
+.vscode/
+.idea/
+*.iml
+*.ipr
+*.iws
+.claude/settings.local.json
 
-# Property test regressions (keep for debugging)
-# /server/proptest-regressions/
+# ---------------------------------------------------------------- AI 协作工具本地数据
+.workbuddy-ai/
 
-# Lock files (keep for reproducible builds)
-# /server/Cargo.lock
-# /client/pubspec.lock
+# ---------------------------------------------------------------- 操作系统
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---------------------------------------------------------------- 日志 / 临时文件
+*.log
+/temp.txt
+*.tmp
+*.bak
+*.orig
+*.rej
+
+# ---------------------------------------------------------------- 部署本地覆盖
+docker-compose.override.yml
+
+# ---------------------------------------------------------------- 锁文件
+# 应用型项目必须提交锁文件，以保证构建可复现 —— 以下两行是显式保留声明
+!/server/Cargo.lock
+!/client/pubspec.lock

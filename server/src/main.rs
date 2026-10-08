@@ -87,6 +87,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         auth_service: Arc::new(auth_service),
         pool: pool.clone(),
         connection_manager: Some(connection_manager.clone()),
+        redis: Some(redis_conn.clone()),
     };
 
     // 创建JWT中间件（使用带Redis的TokenService以支持黑名单）
@@ -96,7 +97,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 创建在线状态服务
     let presence_service = Arc::new(PresenceService::with_redis(redis_conn.clone()));
     let (presence_tx, _) = broadcast::channel::<PresenceUpdate>(100);
-    
+
     let ws_state = api::WsState {
         presence_service: presence_service.clone(),
         presence_tx: presence_tx.clone(),
@@ -156,14 +157,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .allow_methods(Any)
         .allow_headers(Any);
 
+    // Media 服务状态
+    let storage_path = std::env::var("STORAGE_PATH").unwrap_or_else(|_| "./storage".to_string());
+    let media_base_url = std::env::var("MEDIA_BASE_URL")
+        .unwrap_or_else(|_| format!("http://localhost:{}", server_port));
+    let media_state = api::MediaState {
+        db_pool: pool.clone(),
+        storage_path,
+        base_url: media_base_url,
+    };
+
     // 公开路由（不需要认证）
     let public_routes = Router::new()
         .nest("/auth", api::auth_routes(app_state.clone()))
+        .nest("/media", api::public_media_routes().with_state(media_state.clone()))
         .route("/", get(root))
         .route("/health", get(health_check));
 
     // 消息系统路由（WebSocket，使用 token 参数认证）
     let message_ws_router = api::create_ws_router(ws_message_handler);
+
+    // 启动服务器地址
+    let addr = SocketAddr::from(([0, 0, 0, 0], server_port));
 
     // 受保护的路由（需要JWT认证）
     let protected_routes = Router::new()
@@ -174,6 +189,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .merge(api::conversation_routes(pool.clone()))
         .merge(api::contact_routes(pool.clone()))
         .merge(api::ai_agent_routes(pool.clone()))
+        .nest("/media", api::protected_media_routes().with_state(media_state))
         .layer(axum_middleware::from_fn_with_state(
             jwt_auth.clone(),
             middleware::JwtAuth::verify,
@@ -187,8 +203,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .layer(cors)
         .layer(TraceLayer::new_for_http());
 
-    // 启动服务器
-    let addr = SocketAddr::from(([0, 0, 0, 0], server_port));
     tracing::info!("🚀 Server listening on http://{}", addr);
     tracing::info!("📝 API Documentation:");
     tracing::info!("   - POST   /auth/register");

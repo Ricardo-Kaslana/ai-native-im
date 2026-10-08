@@ -149,6 +149,7 @@ impl<R: MessageRouter + 'static> MessageRouter for AIMessageRouter<R> {
                 sender_id: message.sender_id,
                 receiver_id: message.receiver_id,
                 group_id: Some(group_id),
+                conversation_id: Some(group_id),  // For group messages, use group_id as conversation_id
                 msg_type: message.msg_type as i16,
                 content: message.content,
                 timestamp: chrono::Utc::now().timestamp_millis(),

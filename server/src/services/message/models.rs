@@ -40,6 +40,7 @@ pub struct Message {
     pub sender_id: Uuid,
     pub receiver_id: Option<Uuid>,
     pub group_id: Option<Uuid>,
+    pub conversation_id: Option<Uuid>,  // Add conversation_id for proper matching
     pub msg_type: i16,
     pub content: String,
     pub timestamp: i64,
@@ -61,6 +62,7 @@ impl Message {
             sender_id,
             receiver_id: Some(receiver_id),
             group_id: None,
+            conversation_id: None,
             msg_type: msg_type as i16,
             content,
             timestamp: Utc::now().timestamp_millis(),
@@ -82,6 +84,7 @@ impl Message {
             sender_id,
             receiver_id: None,
             group_id: Some(group_id),
+            conversation_id: None,
             msg_type: msg_type as i16,
             content,
             timestamp: Utc::now().timestamp_millis(),
@@ -114,6 +117,7 @@ pub struct CreateMessage {
     pub sender_id: Uuid,
     pub receiver_id: Option<Uuid>,
     pub group_id: Option<Uuid>,
+    pub conversation_id: Option<Uuid>,  // Add conversation_id
     pub msg_type: MsgType,
     pub content: String,
     pub is_ai_generated: bool,
@@ -183,43 +187,58 @@ pub struct WsMessage {
     pub id: String,
     pub conversation_id: String,
     pub sender_id: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub sender_name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub sender_avatar: Option<String>,
+    #[serde(rename = "sender_username", skip_serializing_if = "Option::is_none")]
+    pub sender_username: Option<String>,
+    #[serde(rename = "sender_avatar_url", skip_serializing_if = "Option::is_none")]
+    pub sender_avatar_url: Option<String>,
     #[serde(rename = "type")]
     pub msg_type: String,
     pub content: String,
     pub status: String,
     pub created_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub receiver_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group_id: Option<String>,
+    #[serde(rename = "msg_type")]
+    pub msg_type_int: i16,
+    #[serde(rename = "is_ai_generated")]
+    pub is_ai_generated: bool,
+    pub timestamp: i64,
 }
 
 impl From<&Message> for WsMessage {
     fn from(msg: &Message) -> Self {
-        // Determine conversation_id from receiver_id or group_id
-        let conversation_id = msg.group_id
+        // Determine conversation_id: prioritize explicit conversation_id, then group_id, then receiver_id
+        let conversation_id = msg.conversation_id
+            .or(msg.group_id)
             .or(msg.receiver_id)
             .map(|id| id.to_string())
             .unwrap_or_else(|| msg.id.to_string());
-        
+
         // Convert msg_type to string
-        let msg_type = match MsgType::from(msg.msg_type) {
+        let msg_type_str = match MsgType::from(msg.msg_type) {
             MsgType::Text => "text",
             MsgType::Image => "image",
             MsgType::Video => "video",
             MsgType::Emoji => "emoji",
         };
-        
+
         Self {
             id: msg.id.to_string(),
             conversation_id,
             sender_id: msg.sender_id.to_string(),
-            sender_name: None,
-            sender_avatar: None,
-            msg_type: msg_type.to_string(),
+            sender_username: None,  // TODO: Populate from user service
+            sender_avatar_url: None,  // TODO: Populate from user service
+            msg_type: msg_type_str.to_string(),
             content: msg.content.clone(),
             status: if msg.delivered { "delivered".to_string() } else { "sent".to_string() },
             created_at: msg.created_at.to_rfc3339(),
+            receiver_id: msg.receiver_id.map(|id| id.to_string()),
+            group_id: msg.group_id.map(|id| id.to_string()),
+            msg_type_int: msg.msg_type,
+            is_ai_generated: msg.is_ai_generated,
+            timestamp: msg.timestamp,
         }
     }
 }

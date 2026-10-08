@@ -184,6 +184,7 @@ impl Default for ResponseStyle {
 
 /// Response length preference
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum ResponseLength {
     Short,
     Medium,

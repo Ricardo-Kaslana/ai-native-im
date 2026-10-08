@@ -102,6 +102,7 @@ impl<R: MessageRouter + 'static> AgentMessageSender for RouterMessageSender<R> {
             sender_id,
             receiver_id: None,
             group_id: Some(group_id),
+            conversation_id: Some(group_id),  // For group messages, use group_id as conversation_id
             msg_type: MsgType::Text,
             content: content.to_string(),
             is_ai_generated: true,
@@ -184,6 +185,7 @@ impl AgentMessageSender for WebSocketMessageSender {
             sender_id: agent_id,
             receiver_id: None,
             group_id: Some(group_id),
+            conversation_id: Some(group_id),  // For group messages, use group_id as conversation_id
             msg_type: MsgType::Text as i16,
             content: content.to_string(),
             timestamp: chrono::Utc::now().timestamp_millis(),

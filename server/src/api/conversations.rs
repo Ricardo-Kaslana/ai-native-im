@@ -98,7 +98,7 @@ async fn get_conversations(
     .await?;
 
     let mut result = Vec::new();
-    for conv in conversations {
+    for conv in &conversations {
         let participants = sqlx::query_as::<_, (Uuid, String, Option<String>)>(
             r#"
             SELECT u.id, u.username, u.avatar_url
@@ -122,8 +122,8 @@ async fn get_conversations(
 
         result.push(ConversationResponse {
             id: conv.id.to_string(),
-            conversation_type: conv.conversation_type,
-            name: conv.name,
+            conversation_type: conv.conversation_type.clone(),
+            name: conv.name.clone(),
             participants: participant_infos,
             created_at: conv.created_at.to_rfc3339(),
             updated_at: conv.updated_at.to_rfc3339(),
@@ -305,6 +305,9 @@ pub struct Message {
 pub struct MessageResponse {
     pub id: String,
     pub sender_id: String,
+    pub sender_username: Option<String>,  // 添加发送者用户名
+    pub sender_avatar_url: Option<String>, // 添加发送者头像
+    pub conversation_id: String,  // Add conversation_id for proper client-side matching
     pub receiver_id: Option<String>,
     pub group_id: Option<String>,
     pub msg_type: String,
@@ -357,6 +360,23 @@ async fn get_conversation_messages(
     let limit: i64 = params.get("limit").and_then(|s| s.parse().ok()).unwrap_or(50);
     let offset: i64 = params.get("offset").and_then(|s| s.parse().ok()).unwrap_or(0);
 
+    // 定义包含发送者信息的消息结构
+    #[derive(Debug, sqlx::FromRow)]
+    struct MessageWithSender {
+        id: Uuid,
+        sender_id: Uuid,
+        sender_username: Option<String>,
+        sender_avatar_url: Option<String>,
+        receiver_id: Option<Uuid>,
+        group_id: Option<Uuid>,
+        msg_type: i16,
+        content: String,
+        timestamp: i64,
+        is_ai_generated: bool,
+        delivered: bool,
+        created_at: chrono::DateTime<chrono::Utc>,
+    }
+
     let messages = if conversation.conversation_type == "private" {
         let other_user_id = sqlx::query_scalar::<_, Uuid>(
             r#"
@@ -371,12 +391,17 @@ async fn get_conversation_messages(
         .await?
         .ok_or_else(|| AppError::NotFound("Other participant not found".to_string()))?;
 
-        sqlx::query_as::<_, Message>(
+        sqlx::query_as::<_, MessageWithSender>(
             r#"
-            SELECT * FROM messages
-            WHERE (sender_id = $1 AND receiver_id = $2)
-               OR (sender_id = $2 AND receiver_id = $1)
-            ORDER BY timestamp DESC
+            SELECT
+                m.id, m.sender_id, u.username as sender_username, u.avatar_url as sender_avatar_url,
+                m.receiver_id, m.group_id, m.msg_type, m.content, m.timestamp,
+                m.is_ai_generated, m.delivered, m.created_at
+            FROM messages m
+            LEFT JOIN users u ON m.sender_id = u.id
+            WHERE (m.sender_id = $1 AND m.receiver_id = $2)
+               OR (m.sender_id = $2 AND m.receiver_id = $1)
+            ORDER BY m.timestamp DESC
             LIMIT $3 OFFSET $4
             "#,
         )
@@ -387,11 +412,16 @@ async fn get_conversation_messages(
         .fetch_all(&pool)
         .await?
     } else {
-        sqlx::query_as::<_, Message>(
+        sqlx::query_as::<_, MessageWithSender>(
             r#"
-            SELECT * FROM messages
-            WHERE group_id = $1
-            ORDER BY timestamp DESC
+            SELECT
+                m.id, m.sender_id, u.username as sender_username, u.avatar_url as sender_avatar_url,
+                m.receiver_id, m.group_id, m.msg_type, m.content, m.timestamp,
+                m.is_ai_generated, m.delivered, m.created_at
+            FROM messages m
+            LEFT JOIN users u ON m.sender_id = u.id
+            WHERE m.group_id = $1
+            ORDER BY m.timestamp DESC
             LIMIT $2 OFFSET $3
             "#,
         )
@@ -413,9 +443,16 @@ async fn get_conversation_messages(
                 _ => "text",
             };
 
+            // Determine conversation_id: use conversation_id from the URL path
+            // This ensures proper client-side message matching
+            let conv_id = conversation_id.to_string();
+
             MessageResponse {
                 id: msg.id.to_string(),
                 sender_id: msg.sender_id.to_string(),
+                sender_username: msg.sender_username,
+                sender_avatar_url: msg.sender_avatar_url,
+                conversation_id: conv_id,
                 receiver_id: msg.receiver_id.map(|id| id.to_string()),
                 group_id: msg.group_id.map(|id| id.to_string()),
                 msg_type: msg_type_str.to_string(),

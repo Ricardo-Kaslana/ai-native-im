@@ -537,7 +537,6 @@ impl From<crate::services::media::MediaError> for AppError {
             MediaError::RedisError(err) => AppError::Internal(format!("Redis error: {}", err)),
             MediaError::ImageError(err) => AppError::Internal(format!("Image error: {}", err)),
             MediaError::IoError(err) => AppError::Internal(format!("IO error: {}", err)),
-            MediaError::S3Error(msg) => AppError::Internal(format!("S3 error: {}", msg)),
             MediaError::InternalError(msg) => AppError::Internal(msg),
         }
     }

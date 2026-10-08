@@ -337,20 +337,25 @@ impl<R: MessageRouter> WebSocketHandler<R> {
             message = ?msg,
             "🔵 handle_chat_message: Received WebSocket message"
         );
-        
+
         // Extract message fields
         let receiver_id = msg.get("receiver_id")
             .and_then(|v| v.as_str())
             .and_then(|s| Uuid::parse_str(s).ok());
-        
+
         let group_id = msg.get("group_id")
             .and_then(|v| v.as_str())
             .and_then(|s| Uuid::parse_str(s).ok());
-        
+
+        // Extract conversation_id (optional for backward compatibility)
+        let conversation_id = msg.get("conversation_id")
+            .and_then(|v| v.as_str())
+            .and_then(|s| Uuid::parse_str(s).ok());
+
         let content = msg.get("content")
             .and_then(|v| v.as_str())
             .ok_or_else(|| WebSocketError::InvalidMessage("Missing content".to_string()))?;
-        
+
         let msg_type = msg.get("msg_type")
             .and_then(|v| v.as_i64())
             .map(|t| MsgType::from(t as i32))
@@ -359,11 +364,15 @@ impl<R: MessageRouter> WebSocketHandler<R> {
         let message_id = msg.get("id")
             .and_then(|v| v.as_str())
             .and_then(|s| Uuid::parse_str(s).ok());
-        
+
+        // Determine conversation_id: use explicit value, or derive from group_id/receiver_id
+        let final_conversation_id = conversation_id.or(group_id).or(receiver_id);
+
         tracing::debug!(
             sender_id = %sender_id,
             receiver_id = ?receiver_id,
             group_id = ?group_id,
+            conversation_id = ?final_conversation_id,
             message_id = ?message_id,
             content_len = content.len(),
             msg_type = ?msg_type,
@@ -376,6 +385,7 @@ impl<R: MessageRouter> WebSocketHandler<R> {
             sender_id,
             receiver_id,
             group_id,
+            conversation_id: final_conversation_id,
             msg_type,
             content: content.to_string(),
             is_ai_generated: false,
@@ -386,9 +396,10 @@ impl<R: MessageRouter> WebSocketHandler<R> {
             sender_id = %create_msg.sender_id,
             receiver_id = ?create_msg.receiver_id,
             group_id = ?create_msg.group_id,
+            conversation_id = ?create_msg.conversation_id,
             "🚀 Calling message_router.route_message()"
         );
-        
+
         match self.message_router.route_message(create_msg).await {
             Ok(ack) => {
                 tracing::info!(

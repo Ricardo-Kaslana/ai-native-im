@@ -184,13 +184,23 @@ impl AuthService {
     pub async fn login(&mut self, data: LoginData) -> Result<(User, TokenPair), AuthError> {
         let ip_address = None;
         let user_agent = None;
-        // Check if account is locked
-        if self.rate_limiter.is_locked(&data.username).await? {
-            // Log account locked
-            self.audit_service
-                .log_account_locked(&data.username, ip_address, user_agent)
-                .await?;
-            return Err(AuthError::AccountLocked);
+
+        // Check if account is locked (only if Redis is available)
+        match self.rate_limiter.is_locked(&data.username).await {
+            Ok(locked) => {
+                if locked {
+                    // Log account locked
+                    let _ = self.audit_service
+                        .log_account_locked(&data.username, ip_address, user_agent)
+                        .await;
+                    return Err(AuthError::AccountLocked);
+                }
+            }
+            Err(RateLimiterError::RedisError(e)) => {
+                // Redis is unavailable - log warning but continue with login
+                tracing::warn!("Redis unavailable for rate limiting, allowing login: {}", e);
+            }
+            Err(e) => return Err(AuthError::RateLimiterError(e)),
         }
 
         // Get user by username
@@ -210,21 +220,36 @@ impl AuthService {
             .map_err(|e| AuthError::PasswordError(e.to_string()))?;
 
         if !password_valid {
-            // Record failed attempt
-            self.rate_limiter
+            // Record failed attempt (only if Redis is available)
+            match self
+                .rate_limiter
                 .record_failed_attempt(&data.username)
-                .await?;
+                .await
+            {
+                Ok(_) => {}
+                Err(RateLimiterError::RedisError(e)) => {
+                    tracing::warn!("Redis unavailable for recording failed attempt: {}", e);
+                }
+                Err(e) => return Err(AuthError::RateLimiterError(e)),
+            }
 
             // Log failed login
-            self.audit_service
+            let _ = self
+                .audit_service
                 .log_login_failed(&data.username, "invalid_password", ip_address, user_agent)
-                .await?;
+                .await;
 
             return Err(AuthError::InvalidCredentials);
         }
 
-        // Reset failed attempts on successful login
-        self.rate_limiter.reset_attempts(&data.username).await?;
+        // Reset failed attempts on successful login (only if Redis is available)
+        match self.rate_limiter.reset_attempts(&data.username).await {
+            Ok(_) => {}
+            Err(RateLimiterError::RedisError(e)) => {
+                tracing::warn!("Redis unavailable for resetting attempts: {}", e);
+            }
+            Err(e) => return Err(AuthError::RateLimiterError(e)),
+        }
 
         // Update online status
         self.user_service
@@ -238,9 +263,10 @@ impl AuthService {
             .map_err(|e| AuthError::TokenError(e.to_string()))?;
 
         // Log successful login
-        self.audit_service
+        let _ = self
+            .audit_service
             .log_login_success(user.id, &user.username, ip_address, user_agent)
-            .await?;
+            .await;
 
         Ok((user, tokens))
     }

@@ -120,6 +120,7 @@ impl MessageRouterImpl {
             sender_id: create.sender_id,
             receiver_id: create.receiver_id,
             group_id: create.group_id,
+            conversation_id: create.conversation_id,
             msg_type: create.msg_type as i16,
             content: create.content.clone(),
             timestamp: chrono::Utc::now().timestamp_millis(),
@@ -278,16 +279,28 @@ impl MessageRouter for MessageRouterImpl {
     }
 
     async fn route_to_user(&self, user_id: &Uuid, message: &Message) -> Result<bool, RouterError> {
-        // Try local delivery first
-        let delivered_locally = self.deliver_locally(user_id, message).await;
+        let mut delivered_count = 0;
 
-        // If not delivered locally and Redis is available, publish for cross-instance routing
-        if !delivered_locally {
+        // Deliver to receiver
+        if self.deliver_locally(user_id, message).await {
+            delivered_count += 1;
+        }
+
+        // Also deliver to sender (for confirmation/sync)
+        // This ensures the sender sees their own message in the chat
+        if message.sender_id != *user_id {
+            if self.deliver_locally(&message.sender_id, message).await {
+                delivered_count += 1;
+            }
+        }
+
+        // If receiver not delivered locally and Redis is available, publish for cross-instance routing
+        if delivered_count == 0 {
             let channel = format!("user:{}", user_id);
             self.publish_to_redis(&channel, message).await?;
         }
 
-        Ok(delivered_locally)
+        Ok(delivered_count > 0)
     }
 
     async fn route_to_group(&self, group_id: &Uuid, message: &Message) -> Result<u32, RouterError> {

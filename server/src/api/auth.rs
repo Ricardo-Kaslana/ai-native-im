@@ -1,6 +1,7 @@
 use crate::error::AppError;
 use crate::middleware::UserContext;
 use crate::response::ApiResponse;
+use crate::services::admin::AdminService;
 use crate::services::auth::{AuthService, ChangePasswordData, LoginData, RegisterData};
 use axum::{
     extract::State,
@@ -8,6 +9,7 @@ use axum::{
     routing::post,
     Extension, Router,
 };
+use redis::aio::ConnectionManager;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -17,6 +19,18 @@ pub struct AppState {
     pub auth_service: Arc<AuthService>,
     pub pool: sqlx::PgPool,
     pub connection_manager: Option<Arc<crate::api::ConnectionManager>>,
+    pub redis: Option<ConnectionManager>,
+}
+
+impl AppState {
+    /// Get AdminService with Redis support if available
+    pub fn admin_service(&self) -> AdminService {
+        if let Some(ref redis) = self.redis {
+            AdminService::with_redis(self.pool.clone(), redis.clone())
+        } else {
+            AdminService::new(self.pool.clone())
+        }
+    }
 }
 
 /// Registration request

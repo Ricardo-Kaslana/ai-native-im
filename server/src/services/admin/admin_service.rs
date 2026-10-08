@@ -1,5 +1,6 @@
 use crate::models::user::{AccountStatus, User, UserAdminView, UserRole};
-use crate::services::auth::UserService;
+use crate::services::auth::{RateLimiter, UserService};
+use redis::aio::ConnectionManager;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use std::collections::HashMap;
@@ -33,6 +34,7 @@ pub enum AdminAction {
     ActivateUser,
     DeleteUser,
     ChangeRole,
+    UnlockAccount,
     ViewUsers,
     ViewStats,
 }
@@ -87,6 +89,7 @@ pub struct UserListResponse {
 pub struct AdminService {
     pool: PgPool,
     user_service: UserService,
+    redis: Option<ConnectionManager>,
 }
 
 impl AdminService {
@@ -95,6 +98,16 @@ impl AdminService {
         Self {
             user_service: UserService::new(pool.clone()),
             pool,
+            redis: None,
+        }
+    }
+
+    /// Create a new admin service with Redis support (for rate limiter functions)
+    pub fn with_redis(pool: PgPool, redis: ConnectionManager) -> Self {
+        Self {
+            user_service: UserService::new(pool.clone()),
+            pool,
+            redis: Some(redis),
         }
     }
 
@@ -272,6 +285,40 @@ impl AdminService {
 
         // Log admin action
         self.log_admin_action(admin_id, target_user_id, AdminAction::ChangeRole, reason)
+            .await?;
+
+        Ok(())
+    }
+
+    /// Unlock a user account (clear rate limit lockout)
+    /// Admin or Moderator can unlock accounts
+    pub async fn unlock_user_account(
+        &self,
+        admin_id: &Uuid,
+        username: &str,
+        reason: Option<String>,
+    ) -> Result<(), AdminError> {
+        // Check admin permission
+        self.check_admin_permission(admin_id).await?;
+
+        // Get user by username to verify existence and get user_id
+        let user = self
+            .user_service
+            .get_user_by_username(username)
+            .await
+            .map_err(|_| AdminError::UserNotFound)?;
+
+        // Clear rate limit lockout if Redis is available
+        if let Some(redis) = self.redis.clone() {
+            let mut rate_limiter = RateLimiter::with_defaults(redis);
+            rate_limiter
+                .unlock_account(username)
+                .await
+                .map_err(|e| AdminError::InvalidOperation(format!("Failed to unlock account: {}", e)))?;
+        }
+
+        // Log admin action
+        self.log_admin_action(admin_id, &user.id, AdminAction::UnlockAccount, reason)
             .await?;
 
         Ok(())

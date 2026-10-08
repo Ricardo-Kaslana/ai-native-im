@@ -133,10 +133,10 @@ impl MessagePersister for PostgresMessagePersister {
                 let result = sqlx::query(
                     r#"
                     INSERT INTO messages (
-                        id, sender_id, receiver_id, group_id, msg_type, 
+                        id, sender_id, receiver_id, group_id, conversation_id, msg_type,
                         content, timestamp, is_ai_generated, delivered, created_at
                     )
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
                     ON CONFLICT (id) DO NOTHING
                     "#,
                 )
@@ -144,6 +144,7 @@ impl MessagePersister for PostgresMessagePersister {
                 .bind(&message.sender_id)
                 .bind(&message.receiver_id)
                 .bind(&message.group_id)
+                .bind(&message.conversation_id)
                 .bind(&message.msg_type)
                 .bind(&message.content)
                 .bind(&message.timestamp)
@@ -152,13 +153,14 @@ impl MessagePersister for PostgresMessagePersister {
                 .bind(&message.created_at)
                 .execute(&pool)
                 .await?;
-                
+
                 tracing::debug!(
                     message_id = %message.id,
+                    conversation_id = ?message.conversation_id,
                     rows_affected = result.rows_affected(),
                     "✅ Database insert completed"
                 );
-                
+
                 Ok(())
             }
         })

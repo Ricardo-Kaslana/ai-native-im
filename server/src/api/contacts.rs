@@ -49,7 +49,6 @@ pub struct ContactData {
     pub contact: ContactResponse,
 }
 
-
 /// GET /contacts - Get user's contacts
 async fn get_contacts(
     State(pool): State<PgPool>,
@@ -105,7 +104,8 @@ async fn add_contact(
         return Err(AppError::UserNotFound(contact_id.to_string()));
     }
 
-    // Check if already a contact
+    // Check if already a contact in this specific direction only
+    // We allow bidirectional relationships to be created independently
     let already_contact = sqlx::query_scalar::<_, bool>(
         "SELECT EXISTS(SELECT 1 FROM contacts WHERE user_id = $1 AND contact_id = $2)",
     )
@@ -115,18 +115,32 @@ async fn add_contact(
     .await?;
 
     if already_contact {
-        return Err(AppError::Conflict("Contact already exists".to_string()));
+        return Err(AppError::Conflict("Contact relationship already exists".to_string()));
     }
 
-    // Add contact
+    // Add contact relationship in this direction
     sqlx::query(
         r#"
         INSERT INTO contacts (user_id, contact_id)
         VALUES ($1, $2)
+        ON CONFLICT (user_id, contact_id) DO NOTHING
         "#,
     )
     .bind(&user_ctx.user_id)
     .bind(&contact_id)
+    .execute(&pool)
+    .await?;
+
+    // Create bidirectional relationship - add current user as contact for the target user
+    sqlx::query(
+        r#"
+        INSERT INTO contacts (user_id, contact_id)
+        VALUES ($1, $2)
+        ON CONFLICT (user_id, contact_id) DO NOTHING
+        "#,
+    )
+    .bind(&contact_id)  // The target user becomes the user_id
+    .bind(&user_ctx.user_id)  // Current user becomes the contact_id
     .execute(&pool)
     .await?;
 

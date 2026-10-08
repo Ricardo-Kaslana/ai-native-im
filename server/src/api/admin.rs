@@ -217,6 +217,37 @@ async fn get_audit_logs(
     }
 }
 
+/// Account unlock request body
+#[derive(Deserialize)]
+pub struct AccountUnlockBody {
+    pub username: String,
+    pub reason: Option<String>,
+}
+
+/// POST /admin/accounts/unlock - Unlock a rate-limited account
+async fn unlock_account(
+    State(state): State<AppState>,
+    Extension(user_ctx): Extension<UserContext>,
+    Json(body): Json<AccountUnlockBody>,
+) -> Result<Json<AdminResponse<()>>, StatusCode> {
+    let admin_service = state.admin_service();
+
+    match admin_service
+        .unlock_user_account(&user_ctx.user_id, &body.username, body.reason)
+        .await
+    {
+        Ok(_) => Ok(Json(AdminResponse {
+            success: true,
+            data: None,
+            message: format!("Account '{}' unlocked successfully", body.username),
+        })),
+        Err(e) => {
+            tracing::error!("Failed to unlock account: {:?}", e);
+            Err(StatusCode::FORBIDDEN)
+        }
+    }
+}
+
 /// Create admin routes
 pub fn admin_routes(state: AppState) -> Router {
     Router::new()
@@ -228,5 +259,6 @@ pub fn admin_routes(state: AppState) -> Router {
         .route("/users/:id", delete(delete_user))
         .route("/users/:id/role", put(change_user_role))
         .route("/audit-logs", get(get_audit_logs))
+        .route("/accounts/unlock", post(unlock_account))
         .with_state(state)
 }

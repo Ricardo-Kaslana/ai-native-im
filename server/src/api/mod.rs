@@ -16,7 +16,7 @@ pub use auth::{auth_protected_routes, auth_routes};
 pub use contacts::contact_routes;
 pub use conversations::conversation_routes;
 pub use groups::group_routes;
-pub use media::{media_routes, MediaState};
+pub use media::{public_media_routes, protected_media_routes, MediaState};
 pub use message_ws::{create_ws_router, WsAppState, WsQuery};
 pub use metrics::{create_metrics_router, MetricsState};
 pub use users::user_routes;

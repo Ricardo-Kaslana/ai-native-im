@@ -67,7 +67,7 @@ class AppConfig {
   static const String appName = 'AIIM';
 
   /// 应用版本
-  static const String version = '1.0.0';
+  static const String version = '3.0.0';
 
   /// 连接超时时间（秒）
   static const int connectTimeout = 30;

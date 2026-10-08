@@ -5,6 +5,33 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 并且本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [3.0.0] - 2026-10-08
+
+> **版本号重置说明**：本项目 1.0.0 → 2.7.1 的版本记录属于历史遗留（早期完全由 AI 辅助
+> 开发、版本管理不规范），与当前代码状态无连续对应关系。自 3.0.0 起重新建立版本基线，
+> 与旧进度明确区分。下方历史记录保留原样，不再变更。
+
+### Changed
+
+#### 版本号统一
+- 全项目版本号统一为 `3.0.0`。此前三处不一致：CHANGELOG `2.7.1`、`server/Cargo.toml` `0.1.0`、`client/pubspec.yaml` `1.0.0+1`
+- 同步位置：`server/Cargo.toml`、`server/Cargo.lock`、`client/pubspec.yaml`、客户端运行时版本常量（`AppConfig.version` 与设置页显示）
+- Windows 平台 fallback 版本号（`client/windows/runner/Runner.rc`）同步更新
+
+#### 仓库规范化
+- 新增 `.gitignore` 与 `.gitattributes`；此前根级规则缺失，且存在错误的 `/client/` 规则，导致客户端长期未被纳入版本控制
+- `client/` 首次纳入版本控制
+- 移除部署与 CI 配置（k8s、monitoring、nginx、Dockerfile、docker-compose、GitHub Actions）
+- 清理过时的 AI 生成文档与设计规格；现行文档精简为 3 份，历史文档归入 `docs/archive/`
+
+#### 存储层
+- 存储 provider 精简为腾讯 COS 与阿里 OSS，移除 AWS S3 / MinIO / Cloudflare R2
+- 依赖调整：移除 `aws-config`、`aws-sdk-s3`，新增 `mime_guess`、`base64`
+
+### Removed
+- `client/lib-bak/`（`client/lib` 的旧快照，无独有内容）
+- `docs/TODO.md`（内容已过期）
+
 ## [2.7.1] - 2026-05-23
 
 ### Fixed

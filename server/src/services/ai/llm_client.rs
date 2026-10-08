@@ -2129,7 +2129,7 @@ impl LLMClientFactory {
 }
 
 /// Create LLM client from environment variables (legacy function)
-#[deprecated(since = "0.1.0", note = "Use LLMClientFactory::from_env() instead")]
+#[deprecated(since = "3.0.0", note = "Use LLMClientFactory::from_env() instead")]
 pub fn create_llm_client_from_env() -> Option<Box<dyn LLMClient>> {
     LLMClientFactory::from_env().map(|arc| {
         // Convert Arc to Box - this is a bit awkward but maintains backward compatibility

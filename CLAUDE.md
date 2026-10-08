@@ -13,7 +13,7 @@ AI-Native IM is a sophisticated instant messaging system with deep AI integratio
 
 The AI system supports 9 LLM providers with domestic (Chinese) provider priority: SiliconFlow, Zhipu AI, Moonshot (Kimi), Tongyi Qianwen, Wenxin Yiyan, plus OpenAI, Anthropic, Google Gemini.
 
-**Current Version**: 2.7.1 (see CHANGELOG.md for version history)
+**Current Version**: 3.0.0 (see CHANGELOG.md for version history)
 
 ## Development Commands
 

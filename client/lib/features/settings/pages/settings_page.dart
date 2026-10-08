@@ -214,7 +214,7 @@ class _SettingsPageState extends State<SettingsPage> {
             children: [
               const ListTile(
                 title: Text('版本'),
-                trailing: Text('1.0.0'),
+                trailing: Text('3.0.0'),
               ),
               ListTile(
                 title: const Text('隐私政策'),

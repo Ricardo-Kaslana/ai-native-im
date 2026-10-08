@@ -40,31 +40,22 @@ pub trait StorageProvider: Send + Sync {
 /// Storage provider type enumeration
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StorageProviderType {
-    AwsS3,
-    MinIO,
     TencentCOS,
     AliyunOSS,
-    CloudFlareR2,
 }
 
 impl StorageProviderType {
     pub fn as_str(&self) -> &'static str {
         match self {
-            Self::AwsS3 => "aws_s3",
-            Self::MinIO => "minio",
             Self::TencentCOS => "tencent_cos",
             Self::AliyunOSS => "aliyun_oss",
-            Self::CloudFlareR2 => "cloudflare_r2",
         }
     }
 
     pub fn from_str(s: &str) -> Result<Self> {
         match s.to_lowercase().as_str() {
-            "aws_s3" | "s3" => Ok(Self::AwsS3),
-            "minio" => Ok(Self::MinIO),
             "tencent_cos" | "cos" => Ok(Self::TencentCOS),
             "aliyun_oss" | "oss" => Ok(Self::AliyunOSS),
-            "cloudflare_r2" | "r2" => Ok(Self::CloudFlareR2),
             _ => Err(MediaError::StorageError(format!(
                 "Unsupported storage provider: {}",
                 s

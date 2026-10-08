@@ -1,75 +1,40 @@
+/// Simplified Media API for local file storage
+/// For development use only
 use axum::{
-    extract::{Extension, Path, State},
+    extract::{Extension, Path as AxumPath, State},
     http::StatusCode,
-    response::IntoResponse,
-    routing::{delete, get, post},
-    Json, Router,
+    response::{IntoResponse, Json, Response},
+    routing::{get, post},
+    Router,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
-use std::sync::Arc;
 use uuid::Uuid;
+use tokio::fs;
 
 use crate::middleware::jwt::UserContext;
-use crate::services::media::{
-    DeduplicationManager, ImageProcessor, MediaError, MediaFile,
-    MediaStatus, MediaType, StorageManager, UploadHandler, VideoProcessor,
-};
 
-/// Application state for media routes
+/// Media state for local file storage
 #[derive(Clone)]
 pub struct MediaState {
     pub db_pool: PgPool,
-    pub upload_handler: Arc<UploadHandler>,
-    pub image_processor: Arc<ImageProcessor>,
-    pub video_processor: Arc<VideoProcessor>,
-    pub storage_manager: Arc<StorageManager>,
-    pub dedup_manager: Arc<DeduplicationManager>,
+    pub storage_path: String,
+    pub base_url: String,
 }
 
-/// Request to upload an image
-#[derive(Debug, Deserialize)]
-pub struct ImageUploadRequest {
-    pub file_size: u64,
-    pub mime_type: String,
-}
-
-/// Request to upload a video
-#[derive(Debug, Deserialize)]
-pub struct VideoUploadRequest {
-    pub file_size: u64,
-    pub mime_type: String,
-}
-
-/// Request to complete an upload
-#[derive(Debug, Deserialize)]
-pub struct CompleteUploadRequest {
-    pub media_id: Uuid,
-    pub file_hash: String,
-}
-
-/// Response for upload request
+/// Upload response
 #[derive(Debug, Serialize)]
 pub struct UploadResponse {
-    pub media_id: Uuid,
-    pub upload_url: String,
-    pub expires_at: i64,
+    pub media_id: String,
+    pub file_url: String,
 }
 
-/// Response for media info
-#[derive(Debug, Serialize)]
-pub struct MediaResponse {
-    pub id: Uuid,
-    pub media_type: String,
+/// Base64 upload request
+#[derive(Debug, Deserialize)]
+pub struct Base64UploadRequest {
+    pub file_name: String,
     pub mime_type: String,
-    pub url: String,
-    pub thumbnail_url: Option<String>,
-    pub width: Option<i32>,
-    pub height: Option<i32>,
-    pub duration: Option<f64>,
-    pub file_size: i64,
-    pub status: String,
-    pub created_at: String,
+    pub data: String, // base64 without data:url prefix
 }
 
 /// Error response
@@ -79,266 +44,153 @@ pub struct ErrorResponse {
     pub code: String,
 }
 
-/// Create media routes
-pub fn media_routes() -> Router<MediaState> {
+impl IntoResponse for ErrorResponse {
+    fn into_response(self) -> Response {
+        (StatusCode::BAD_REQUEST, Json(self)).into_response()
+    }
+}
+
+/// Create public media routes (no authentication required)
+pub fn public_media_routes() -> Router<MediaState> {
     Router::new()
-        .route("/upload/image", post(request_image_upload))
-        .route("/upload/video", post(request_video_upload))
-        .route("/complete", post(complete_upload))
-        .route("/:id", get(get_media_info))
-        .route("/:id/thumbnail", get(get_thumbnail))
-        .route("/:id", delete(delete_media))
+        .route("/avatars/:filename", get(get_avatar))
+        .route("/uploads/:filename", get(get_upload))
 }
 
-/// POST /media/upload/image - Request image upload
-async fn request_image_upload(
+/// Create protected media routes (authentication required)
+pub fn protected_media_routes() -> Router<MediaState> {
+    Router::new()
+        .route("/upload/base64", post(upload_base64))
+}
+
+/// GET /media/avatars/:filename - Get avatar file
+async fn get_avatar(
     State(state): State<MediaState>,
-    Extension(user): Extension<UserContext>,
-    Json(req): Json<ImageUploadRequest>,
-) -> Result<Json<UploadResponse>, MediaApiError> {
-    let token = state
-        .upload_handler
-        .request_image_upload(user.user_id, req.file_size, req.mime_type)
-        .await?;
+    AxumPath(filename): AxumPath<String>,
+) -> Result<Response, ErrorResponse> {
+    let file_path = format!("{}/avatars/{}", state.storage_path, filename);
 
-    Ok(Json(UploadResponse {
-        media_id: token.media_id,
-        upload_url: token.upload_url,
-        expires_at: token.expires_at,
-    }))
-}
+    if let Ok(_metadata) = fs::metadata(&file_path).await {
+        let mime_type = mime_guess::from_path(&file_path)
+            .first_or_octet_stream()
+            .to_string();
 
-/// POST /media/upload/video - Request video upload
-async fn request_video_upload(
-    State(state): State<MediaState>,
-    Extension(user): Extension<UserContext>,
-    Json(req): Json<VideoUploadRequest>,
-) -> Result<Json<UploadResponse>, MediaApiError> {
-    let token = state
-        .upload_handler
-        .request_video_upload(user.user_id, req.file_size, req.mime_type)
-        .await?;
-
-    Ok(Json(UploadResponse {
-        media_id: token.media_id,
-        upload_url: token.upload_url,
-        expires_at: token.expires_at,
-    }))
-}
-
-/// POST /media/complete - Complete upload
-async fn complete_upload(
-    State(state): State<MediaState>,
-    Extension(_user): Extension<UserContext>,
-    Json(req): Json<CompleteUploadRequest>,
-) -> Result<Json<MediaResponse>, MediaApiError> {
-
-    // Check for duplicate
-    if let Some(existing_id) = state.dedup_manager.check_duplicate(&req.file_hash).await? {
-        // Increment reference count for existing file
-        state.dedup_manager.increment_ref_count(existing_id).await?;
-
-        // Get existing media info
-        let media = get_media_by_id(&state.db_pool, existing_id).await?;
-        return Ok(Json(media_to_response(&media)));
-    }
-
-    // Complete the upload
-    let media_id = state
-        .upload_handler
-        .complete_upload(req.media_id, req.file_hash.clone())
-        .await?;
-
-    // Register the file hash
-    state
-        .dedup_manager
-        .register_file(&req.file_hash, media_id)
-        .await?;
-
-    // Get media info
-    let media = get_media_by_id(&state.db_pool, media_id).await?;
-
-    Ok(Json(media_to_response(&media)))
-}
-
-/// GET /media/:id - Get media info
-async fn get_media_info(
-    State(state): State<MediaState>,
-    Path(media_id): Path<Uuid>,
-) -> Result<Json<MediaResponse>, MediaApiError> {
-    let media = get_media_by_id(&state.db_pool, media_id).await?;
-    Ok(Json(media_to_response(&media)))
-}
-
-/// GET /media/:id/thumbnail - Get thumbnail URL
-async fn get_thumbnail(
-    State(state): State<MediaState>,
-    Path(media_id): Path<Uuid>,
-) -> Result<Json<ThumbnailResponse>, MediaApiError> {
-    let media = get_media_by_id(&state.db_pool, media_id).await?;
-
-    let thumbnail_url = media.thumbnail_url.ok_or_else(|| {
-        MediaApiError::NotFound("Thumbnail not available".to_string())
-    })?;
-
-    Ok(Json(ThumbnailResponse { thumbnail_url }))
-}
-
-#[derive(Debug, Serialize)]
-pub struct ThumbnailResponse {
-    pub thumbnail_url: String,
-}
-
-/// DELETE /media/:id - Delete media
-async fn delete_media(
-    State(state): State<MediaState>,
-    Extension(user): Extension<UserContext>,
-    Path(media_id): Path<Uuid>,
-) -> Result<StatusCode, MediaApiError> {
-    let user_id = user.user_id;
-
-    // Get media info
-    let media = get_media_by_id(&state.db_pool, media_id).await?;
-
-    // Verify ownership
-    if media.uploader_id != user_id {
-        return Err(MediaApiError::Unauthorized);
-    }
-
-    // Decrement reference count
-    let should_delete = state.dedup_manager.decrement_ref_count(media_id).await?;
-
-    if should_delete {
-        // Delete from storage
-        let is_image = matches!(media.media_type, MediaType::Image);
-
-        // Extract key from URL (simplified - in production, store key separately)
-        if let Some(key) = extract_key_from_url(&media.original_url) {
-            let _ = state.storage_manager.delete_file(&key, is_image).await;
-        }
-
-        // Delete processed and thumbnail files
-        if let Some(processed_url) = &media.processed_url {
-            if let Some(key) = extract_key_from_url(processed_url) {
-                let _ = state.storage_manager.delete_file(&key, is_image).await;
+        let contents = match fs::read(&file_path).await {
+            Ok(c) => c,
+            Err(e) => {
+                return Err(ErrorResponse {
+                    error: format!("Failed to read file: {}", e),
+                    code: "READ_ERROR".to_string(),
+                });
             }
-        }
-
-        if let Some(thumbnail_url) = &media.thumbnail_url {
-            if let Some(key) = extract_key_from_url(thumbnail_url) {
-                let _ = state.storage_manager.delete_file(&key, is_image).await;
-            }
-        }
-
-        // Delete from database
-        state.dedup_manager.delete_file_record(media_id).await?;
-    }
-
-    Ok(StatusCode::NO_CONTENT)
-}
-
-// Helper functions
-
-async fn get_media_by_id(pool: &PgPool, media_id: Uuid) -> Result<MediaFile, MediaApiError> {
-    let media = sqlx::query_as!(
-        MediaFile,
-        r#"
-        SELECT 
-            id, uploader_id, file_hash, 
-            media_type as "media_type: MediaType",
-            mime_type, storage_provider, original_url, processed_url, thumbnail_url,
-            width, height, duration::float8 as "duration: f64", file_size, ref_count,
-            status as "status: MediaStatus",
-            created_at, updated_at
-        FROM media_files
-        WHERE id = $1
-        "#,
-        media_id
-    )
-    .fetch_optional(pool)
-    .await
-    .map_err(|e| MediaApiError::Internal(e.to_string()))?
-    .ok_or_else(|| MediaApiError::NotFound("Media not found".to_string()))?;
-
-    Ok(media)
-}
-
-fn media_to_response(media: &MediaFile) -> MediaResponse {
-    MediaResponse {
-        id: media.id,
-        media_type: match media.media_type {
-            MediaType::Image => "image".to_string(),
-            MediaType::Video => "video".to_string(),
-        },
-        mime_type: media.mime_type.clone(),
-        url: media.processed_url.clone().unwrap_or_else(|| media.original_url.clone()),
-        thumbnail_url: media.thumbnail_url.clone(),
-        width: media.width,
-        height: media.height,
-        duration: media.duration,
-        file_size: media.file_size,
-        status: match media.status {
-            MediaStatus::Processing => "processing".to_string(),
-            MediaStatus::Completed => "completed".to_string(),
-            MediaStatus::Failed => "failed".to_string(),
-        },
-        created_at: media.created_at.to_rfc3339(),
-    }
-}
-
-fn extract_key_from_url(url: &str) -> Option<String> {
-    // Simple extraction - assumes URL format like https://bucket.s3.region.amazonaws.com/key
-    // or https://endpoint/bucket/key
-    url.split('/').skip(3).collect::<Vec<_>>().join("/").into()
-}
-
-// Error handling
-
-#[derive(Debug)]
-pub enum MediaApiError {
-    BadRequest(String),
-    Unauthorized,
-    NotFound(String),
-    Internal(String),
-}
-
-impl From<MediaError> for MediaApiError {
-    fn from(err: MediaError) -> Self {
-        match err {
-            MediaError::FileSizeTooLarge(_, _) => MediaApiError::BadRequest(err.to_string()),
-            MediaError::UnsupportedMimeType(_) => MediaApiError::BadRequest(err.to_string()),
-            MediaError::InvalidFormat(_) => MediaApiError::BadRequest(err.to_string()),
-            MediaError::FileNotFound(_) => MediaApiError::NotFound(err.to_string()),
-            MediaError::InvalidUploadToken => MediaApiError::BadRequest(err.to_string()),
-            MediaError::Unauthorized => MediaApiError::Unauthorized,
-            MediaError::FileStillReferenced => MediaApiError::BadRequest(err.to_string()),
-            _ => MediaApiError::Internal(err.to_string()),
-        }
-    }
-}
-
-impl IntoResponse for MediaApiError {
-    fn into_response(self) -> axum::response::Response {
-        let (status, error, code) = match self {
-            MediaApiError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg, "BAD_REQUEST"),
-            MediaApiError::Unauthorized => (
-                StatusCode::UNAUTHORIZED,
-                "Unauthorized".to_string(),
-                "UNAUTHORIZED",
-            ),
-            MediaApiError::NotFound(msg) => (StatusCode::NOT_FOUND, msg, "NOT_FOUND"),
-            MediaApiError::Internal(msg) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                msg,
-                "INTERNAL_ERROR",
-            ),
         };
 
-        let body = Json(ErrorResponse {
-            error,
-            code: code.to_string(),
-        });
-
-        (status, body).into_response()
+        return Ok((
+            [(axum::http::header::CONTENT_TYPE, mime_type)],
+            contents,
+        ).into_response());
     }
+
+    Err(ErrorResponse {
+        error: "File not found".to_string(),
+        code: "NOT_FOUND".to_string(),
+    })
+}
+
+/// GET /media/uploads/:filename - Get upload file
+async fn get_upload(
+    State(state): State<MediaState>,
+    AxumPath(filename): AxumPath<String>,
+) -> Result<Response, ErrorResponse> {
+    let file_path = format!("{}/uploads/{}", state.storage_path, filename);
+
+    if let Ok(_metadata) = fs::metadata(&file_path).await {
+        let mime_type = mime_guess::from_path(&file_path)
+            .first_or_octet_stream()
+            .to_string();
+
+        let contents = match fs::read(&file_path).await {
+            Ok(c) => c,
+            Err(e) => {
+                return Err(ErrorResponse {
+                    error: format!("Failed to read file: {}", e),
+                    code: "READ_ERROR".to_string(),
+                });
+            }
+        };
+
+        return Ok((
+            [(axum::http::header::CONTENT_TYPE, mime_type)],
+            contents,
+        ).into_response());
+    }
+
+    Err(ErrorResponse {
+        error: "File not found".to_string(),
+        code: "NOT_FOUND".to_string(),
+    })
+}
+
+/// POST /media/upload/base64 - Upload base64 encoded image
+async fn upload_base64(
+    State(state): State<MediaState>,
+    _user: Extension<UserContext>,
+    Json(req): Json<Base64UploadRequest>,
+) -> Result<Json<UploadResponse>, ErrorResponse> {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+
+    // Decode base64
+    let file_data = match STANDARD.decode(&req.data) {
+        Ok(data) => data,
+        Err(e) => {
+            return Err(ErrorResponse {
+                error: format!("Invalid base64: {}", e),
+                code: "INVALID_BASE64".to_string(),
+            });
+        }
+    };
+
+    // Generate unique filename
+    let media_id = Uuid::new_v4();
+    let extension = get_extension(&req.mime_type);
+    let filename = format!("{}.{}", media_id, extension);
+
+    // Ensure directory exists
+    let dir_path = format!("{}/avatars", state.storage_path);
+    if let Err(e) = fs::create_dir_all(&dir_path).await {
+        tracing::error!("Failed to create directory: {}", e);
+        return Err(ErrorResponse {
+            error: format!("Failed to create directory: {}", e),
+            code: "STORAGE_ERROR".to_string(),
+        });
+    }
+
+    // Write file
+    let file_path = format!("{}/avatars/{}", state.storage_path, filename);
+    if let Err(e) = fs::write(&file_path, file_data).await {
+        tracing::error!("Failed to write file: {}", e);
+        return Err(ErrorResponse {
+            error: format!("Failed to write file: {}", e),
+            code: "STORAGE_ERROR".to_string(),
+        });
+    }
+
+    let file_url = format!("{}/media/avatars/{}", state.base_url, filename);
+
+    tracing::info!("Uploaded base64 file: {}", file_url);
+
+    Ok(Json(UploadResponse {
+        media_id: media_id.to_string(),
+        file_url,
+    }))
+}
+
+fn get_extension(mime_type: &str) -> String {
+    match mime_type {
+        "image/jpeg" => "jpg",
+        "image/png" => "png",
+        "image/gif" => "gif",
+        "image/webp" => "webp",
+        _ => "bin",
+    }.to_string()
 }

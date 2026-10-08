@@ -50,9 +50,6 @@ pub enum MediaError {
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
 
-    #[error("S3 error: {0}")]
-    S3Error(String),
-
     #[error("Internal error: {0}")]
     InternalError(String),
 }

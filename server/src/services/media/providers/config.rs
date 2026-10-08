@@ -17,20 +17,6 @@ impl StorageConfig {
     /// Validate that all required fields are present for the provider type
     pub fn validate(&self) -> Result<()> {
         match self.provider_type {
-            StorageProviderType::AwsS3 => {
-                if self.region.is_none() {
-                    return Err(MediaError::StorageError(
-                        "AWS S3 requires region".to_string(),
-                    ));
-                }
-            }
-            StorageProviderType::MinIO => {
-                if self.endpoint.is_none() {
-                    return Err(MediaError::StorageError(
-                        "MinIO requires endpoint URL".to_string(),
-                    ));
-                }
-            }
             StorageProviderType::TencentCOS => {
                 if self.region.is_none() {
                     return Err(MediaError::StorageError(
@@ -42,13 +28,6 @@ impl StorageConfig {
                 if self.region.is_none() {
                     return Err(MediaError::StorageError(
                         "Aliyun OSS requires region".to_string(),
-                    ));
-                }
-            }
-            StorageProviderType::CloudFlareR2 => {
-                if self.endpoint.is_none() {
-                    return Err(MediaError::StorageError(
-                        "CloudFlare R2 requires account ID (endpoint)".to_string(),
                     ));
                 }
             }

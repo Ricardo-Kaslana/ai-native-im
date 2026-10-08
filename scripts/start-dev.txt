@@ -1,5 +1,0 @@
-cd D:\Software\qdrant
-qdrant
-
-# 设置执行策略为 RemoteSigned（推荐）
-Set-ExecutionPolicy RemoteSigned -Scope CurrentUser

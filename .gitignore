@@ -83,6 +83,7 @@ desktop.ini
 *.bak
 *.orig
 *.rej
+*.bundle
 
 # ---------------------------------------------------------------- 部署本地覆盖
 docker-compose.override.yml

@@ -5,6 +5,24 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 并且本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [Archived] - 2026-11-02
+
+### Changed
+- 项目转为公开归档，GitHub 仓库设为 Archived（只读），不再维护
+- 新增 `README.md`、`LICENSE`（Apache-2.0）、`NOTICE`、`SECURITY.md`、`docs/README.md`、`.editorconfig`
+- 开发期 `CLAUDE.md` 移入 `docs/archive/`，并标注内容可能过时
+- 客户端默认 API 地址由硬编码公网 IP 改为 `http://localhost:8080`
+- 配置模板修正端口变量为 `PORT`，并标注未使用、重复和不安全的开发期默认值
+- 补充 `server/Cargo.toml` 与 `client/pubspec.yaml` 的许可证/仓库元数据
+
+### Removed
+- 重复的 Android `MainActivity`（仅保留 `com.aiim.aiim`）
+- 未使用的调试 proto（`chat_debug.proto`、`chat_minimal.proto`、`chat_simple.proto`、`chat_test.proto`）
+
+### Security
+- 重写 Git 历史，清理历史文档中的 API Key、JWT 密钥和公网服务器 IP；提交哈希因此变化
+- 历史中曾公开的凭据必须视为已泄漏并立即轮换
+
 ## [3.0.0] - 2026-10-08
 
 > **版本号重置说明**：本项目 1.0.0 → 2.7.1 的版本记录属于历史遗留（早期完全由 AI 辅助

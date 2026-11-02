@@ -1,6 +1,7 @@
 name: aiim
 description: "AI-Native IM - Modern Instant Messaging"
 publish_to: 'none'
+repository: https://github.com/Ricardo-Kaslana/ai-native-im
 version: 3.0.0+1
 
 environment:

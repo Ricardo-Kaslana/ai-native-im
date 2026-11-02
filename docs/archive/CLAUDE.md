@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+> **归档说明（2026-11-02）**：本文档写于 2025 年开发期，由 AI 辅助生成，部分内容（如客户端本地数据库、protobuf 接入、存储 provider）与当前代码不一致，仅作历史参考。
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Overview

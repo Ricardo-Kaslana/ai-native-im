@@ -14,7 +14,7 @@ class AppConfig {
     if (runtimeUrl != null) return runtimeUrl;
 
     // 3. 使用默认值
-    return 'http://127.0.0.1:8080';
+    return 'http://localhost:8080';
   }
 
   /// 运行时 API 地址覆盖（用于开发调试）
